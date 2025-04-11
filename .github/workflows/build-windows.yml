@@ -42,13 +42,15 @@ jobs:
         run: |
           # List available architectures for Qt 6.5.3
           aqt list-qt windows desktop --arch 6.5.3
-          # List available modules for the correct architecture
-          aqt list-qt windows desktop --modules 6.5.3 win64_msvc2019_64
+          # List available modules for the correct architecture (continue on error)
+          aqt list-qt windows desktop --modules 6.5.3 win64_msvc2019_64 || echo "Failed to list modules, check the error above."
+          # List all extensions to get more details (optional)
+          aqt list-qt windows desktop --extensions 6.5.3 win64_msvc2019_64 || echo "Failed to list extensions, check the error above."
 
       - name: Install Qt via aqtinstall
         run: |
           # Use aqtinstall to download and install Qt 6.5.3 for MSVC 2019 64-bit
-          aqt install-qt --outputdir C:/Qt windows desktop 6.5.3 win64_msvc2019_64 -m core gui widgets
+          aqt install-qt --outputdir C:/Qt windows desktop 6.5.3 win64_msvc2019_64
           # Set Qt environment variable
           echo "QT6_DIR=C:/Qt/6.5.3/msvc2019_64/lib/cmake/Qt6" >> $GITHUB_ENV
 
@@ -124,7 +126,7 @@ jobs:
           # Copy the executable
           Copy-Item ../citron/build/bin/Release/citron.exe .
           
-          # Copy Qt DLLs and other dependencies (updated path for msvc2019_64)
+          # Copy Qt DLLs and other dependencies
           Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Core.dll" .
           Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Gui.dll" .
           Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Widgets.dll" .
