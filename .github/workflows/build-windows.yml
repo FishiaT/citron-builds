@@ -38,10 +38,17 @@ jobs:
           # Install aqtinstall
           pip install aqtinstall
 
+      - name: Debug Qt Architectures and Modules
+        run: |
+          # List available architectures for Qt 6.5.3
+          aqt list-qt windows desktop --arch 6.5.3
+          # List available modules for the expected architecture
+          aqt list-qt windows desktop --modules 6.5.3 win64_msvc2022_64
+
       - name: Install Qt via aqtinstall
         run: |
           # Use aqtinstall to download and install Qt 6.5.3 for MSVC 2022 64-bit
-          aqt install-qt --outputdir C:/Qt windows desktop 6.5.3 win64_msvc2022_64 -m qtcore qtgui qtwidgets
+          aqt install-qt --outputdir C:/Qt windows desktop 6.5.3 win64_msvc2022_64 -m core gui widgets
           # Set Qt environment variable
           echo "QT6_DIR=C:/Qt/6.5.3/msvc2022_64/lib/cmake/Qt6" >> $GITHUB_ENV
 
