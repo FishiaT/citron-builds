@@ -1,4 +1,4 @@
-name: Build Citron AppImage
+name: Build Citron for Linux
 
 on:
   push:
