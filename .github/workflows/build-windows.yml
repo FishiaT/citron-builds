@@ -106,14 +106,16 @@ jobs:
           }
           Write-Output "ffmpeg/bin directory exists."
           
-          # Set environment variable for CMake to find FFmpeg
-          echo "FFMPEG_DIR=$PWD/ffmpeg" >> $GITHUB_ENV
+          # Set environment variable for CMake to find FFmpeg (use backslashes for Windows)
+          $FFMPEG_PATH = "$PWD\ffmpeg" -replace '/', '\'
+          echo "FFMPEG_DIR=$FFMPEG_PATH" >> $GITHUB_ENV
           
-          # Debug: Print the FFMPEG_DIR variable
-          Write-Output "FFMPEG_DIR set to: $env:FFMPEG_DIR"
+          # Debug: Show the contents of $GITHUB_ENV to confirm the variable was set
+          Write-Output "Contents of `$GITHUB_ENV after setting FFMPEG_DIR:"
+          Get-Content $env:GITHUB_ENV
           
           # Add FFmpeg bin directory to PATH for runtime dependencies
-          echo "$env:FFMPEG_DIR/bin" >> $GITHUB_PATH
+          echo "$FFMPEG_PATH\bin" >> $GITHUB_PATH
 
       - name: Verify FFmpeg Installation
         run: |
@@ -127,26 +129,26 @@ jobs:
           }
           
           # List FFmpeg files to confirm the presence of required libraries
-          Write-Output "Listing contents of $env:FFMPEG_DIR/bin:"
-          dir "$env:FFMPEG_DIR/bin" -ErrorAction Stop
+          Write-Output "Listing contents of $env:FFMPEG_DIR\bin:"
+          dir "$env:FFMPEG_DIR\bin" -ErrorAction Stop
           
-          Write-Output "Listing contents of $env:FFMPEG_DIR/lib:"
-          dir "$env:FFMPEG_DIR/lib" -ErrorAction Stop
+          Write-Output "Listing contents of $env:FFMPEG_DIR\lib:"
+          dir "$env:FFMPEG_DIR\lib" -ErrorAction Stop
           
           # Check for specific libraries
-          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/avcodec.lib")) {
+          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\avcodec.lib")) {
             Write-Error "avcodec.lib not found!"
             exit 1
           }
-          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/avformat.lib")) {
+          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\avformat.lib")) {
             Write-Error "avformat.lib not found!"
             exit 1
           }
-          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/swresample.lib")) {
+          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\swresample.lib")) {
             Write-Error "swresample.lib not found!"
             exit 1
           }
-          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/swscale.lib")) {
+          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\swscale.lib")) {
             Write-Error "swscale.lib not found!"
             exit 1
           }
