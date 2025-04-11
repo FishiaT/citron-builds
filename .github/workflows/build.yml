@@ -12,7 +12,7 @@ jobs:
       image: archlinux/archlinux
     strategy:
       matrix:
-        variant: [compatibility, optimized, steam_deck]  # Changed 'native' to 'optimized'
+        variant: [compatibility, optimized, steam_deck]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,12 +24,8 @@ jobs:
           # Modify pacman.conf
           sed -i 's/DownloadUser/#DownloadUser/g' /etc/pacman.conf
           
-          # Determine package type
-          if [ "$(uname -m)" = "x86_64" ]; then
-            PKG_TYPE="x86_64.pkg.tar.zst"
-          else
-            PKG_TYPE="aarch64.pkg.tar.xz"
-          fi
+          # Package type for x86_64
+          PKG_TYPE="x86_64.pkg.tar.zst"
           
           # URLs for custom packages
           LLVM_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/llvm-libs-nano-$PKG_TYPE"
@@ -49,12 +45,8 @@ jobs:
             vulkan-radeon wget x264 x265 xcb-util-image xcb-util-renderutil \
             xcb-util-wm xorg-server-xvfb zip zsync
           
-          # Architecture-specific packages
-          if [ "$(uname -m)" = "x86_64" ]; then
-            pacman -Syu --noconfirm vulkan-intel haskell-gnutls gcc13 svt-av1
-          else
-            pacman -Syu --noconfirm vulkan-freedreno vulkan-panfrost
-          fi
+          # Architecture-specific packages for x86_64
+          pacman -Syu --noconfirm vulkan-intel haskell-gnutls gcc13 svt-av1
           
           # Install custom packages
           wget --retry-connrefused --tries=30 "$LLVM_URL" -O ./llvm-libs.pkg.tar.zst
@@ -73,35 +65,41 @@ jobs:
       - name: Build Citron Stable
         run: |
           # Set architecture flags based on variant
-          export ARCH="$(uname -m)"
-          if [ "$ARCH" = "x86_64" ]; then
-            if [ "${{ matrix.variant }}" = "compatibility" ]; then
-              echo "Building stable compatibility variant with -march=x86-64"
-              ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
-            elif [ "${{ matrix.variant }}" = "optimized" ]; then
-              echo "Building stable optimized variant with -march=x86-64-v3"
-              ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
-            else  # steam_deck
-              echo "Building stable Steam Deck variant with -march=znver2"
-              ARCH_FLAGS="-march=znver2 -mtune=znver2 -O3"
-            fi
-          else
-            echo "Building stable for aarch64"
-            ARCH_FLAGS="-march=armv8-a -mtune=generic -O3"
+          export ARCH="x86_64"
+          if [ "${{ matrix.variant }}" = "compatibility" ]; then
+            echo "Building stable compatibility variant with -march=x86-64"
+            ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
+          elif [ "${{ matrix.variant }}" = "optimized" ]; then
+            echo "Building stable optimized variant with -march=x86-64-v3"
+            ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
+          else  # steam_deck
+            echo "Building stable Steam Deck variant with -march=znver2"
+            ARCH_FLAGS="-march=znver2 -mtune=znver2 -O3"
           fi
           
           # Clone stable repository
-          echo "Cloning stable version from https://github.com/zqpvr/Citron"
-          git clone https://github.com/zqpvr/Citron.git ./citron
+          echo "Cloning stable version from https://git.citron-emu.org/Citron/Citron"
+          git clone https://git.citron-emu.org/Citron/Citron.git ./citron
           cd ./citron
-          echo "Checking out tag v0.6.1"
-          git checkout v0.6.1
+          echo "Checking out tag v0.6.1-canary-refresh"
+          git checkout v0.6.1-canary-refresh
           VERSION="0.6.1"
           
           git submodule update --init --recursive -j$(nproc)
           
-          # Fix Boost ASIO (may not be needed for v0.6.1, but keeping for consistency)
-          find src -type f -name "*.cpp" -exec sed -i "s/boost::asio::io_service/boost::asio::io_context/g" {} \;
+          # Debug: Check directory structure
+          echo "Listing contents of citron directory:"
+          ls -la
+          echo "Listing contents of src directory (if it exists):"
+          ls -la src || echo "src directory not found"
+          
+          # Fix Boost ASIO only if src directory exists and contains .cpp files
+          if [ -d "src" ] && [ -n "$(find src -type f -name '*.cpp' 2>/dev/null)" ]; then
+            echo "Applying Boost ASIO fix..."
+            find src -type f -name "*.cpp" -exec sed -i "s/boost::asio::io_service/boost::asio::io_context/g" {} \;
+          else
+            echo "Skipping Boost ASIO fix: src directory not found or contains no .cpp files"
+          fi
           
           # Build Citron
           mkdir build && cd build
@@ -138,7 +136,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           VERSION=$(cat version.txt)
-          ARCH="$(uname -m)"
+          ARCH="x86_64"
           
           # Set up AppDir
           mkdir ./AppDir
@@ -212,9 +210,6 @@ jobs:
           }
           
           # Configure AppRun
-          if [ "$ARCH" = "aarch64" ]; then
-            echo "SHARUN_ALLOW_SYS_VKICD=1" > ./.env
-          fi
           ln ./sharun ./AppRun
           ./sharun -g
           
@@ -234,11 +229,58 @@ jobs:
           # Generate zsync
           zsyncmake *.AppImage -u *.AppImage
 
-      - name: Upload AppImage Stable
-        uses: actions/upload-artifact@v4
-        with:
-          name: Citron-AppImage-stable-${{ matrix.variant }}
-          path: Citron-*.AppImage*
+      - name: Create or Update Stable Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(cat version.txt)
+          
+          # Check if the v0.6.1 release exists in zqpvr/citron-builds
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/v0.6.1")
+          
+          # Extract release ID if it exists
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
+          
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Stable release v0.6.1 exists, deleting old assets..."
+            # Get list of assets
+            ASSETS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets")
+            ASSET_IDS=$(echo "$ASSETS_RESPONSE" | grep '"id":' | sed -E 's/.*"id": ([0-9]+),.*/\1/')
+            
+            # Delete each asset
+            for ASSET_ID in $ASSET_IDS; do
+              curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+                "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID"
+            done
+            
+            echo "Updating existing release..."
+            curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" \
+              -d "{\"name\": \"Stable Build (Version: $VERSION)\", \"prerelease\": false}"
+          else
+            echo "Creating new stable release v0.6.1..."
+            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/zqpvr/citron-builds/releases" \
+              -d "{\"tag_name\": \"v0.6.1\", \"name\": \"Stable Build (Version: $VERSION)\", \"prerelease\": false}"
+          fi
+          
+          # Get the updated release ID
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/v0.6.1")
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
+          
+          # Upload new assets
+          for ASSET in Citron-*.AppImage*; do
+            echo "Uploading $ASSET..."
+            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$ASSET" \
+              "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets?name=$(basename "$ASSET")"
+          done
 
   build-nightly:
     runs-on: ubuntu-latest
@@ -246,11 +288,8 @@ jobs:
       image: archlinux/archlinux
     strategy:
       matrix:
-        variant: [default, x86_64_v3]  # Added x86_64_v3 variant
-        exclude:
-          - variant: x86_64_v3
-            arch: aarch64  # Exclude x86_64_v3 for aarch64
-        arch: [x86_64, aarch64]
+        variant: [default, x86_64_v3]
+        arch: [x86_64]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -262,12 +301,8 @@ jobs:
           # Modify pacman.conf
           sed -i 's/DownloadUser/#DownloadUser/g' /etc/pacman.conf
           
-          # Determine package type
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            PKG_TYPE="x86_64.pkg.tar.zst"
-          else
-            PKG_TYPE="aarch64.pkg.tar.xz"
-          fi
+          # Package type for x86_64
+          PKG_TYPE="x86_64.pkg.tar.zst"
           
           # URLs for custom packages
           LLVM_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/llvm-libs-nano-$PKG_TYPE"
@@ -287,12 +322,8 @@ jobs:
             vulkan-radeon wget x264 x265 xcb-util-image xcb-util-renderutil \
             xcb-util-wm xorg-server-xvfb zip zsync
           
-          # Architecture-specific packages
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            pacman -Syu --noconfirm vulkan-intel haskell-gnutls gcc13 svt-av1
-          else
-            pacman -Syu --noconfirm vulkan-freedreno vulkan-panfrost
-          fi
+          # Architecture-specific packages for x86_64
+          pacman -Syu --noconfirm vulkan-intel haskell-gnutls gcc13 svt-av1
           
           # Install custom packages
           wget --retry-connrefused --tries=30 "$LLVM_URL" -O ./llvm-libs.pkg.tar.zst
@@ -312,17 +343,12 @@ jobs:
         run: |
           # Set architecture flags based on variant
           export ARCH="${{ matrix.arch }}"
-          if [ "$ARCH" = "x86_64" ]; then
-            if [ "${{ matrix.variant }}" = "default" ]; then
-              echo "Building nightly default variant with -march=x86-64"
-              ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
-            else  # x86_64_v3
-              echo "Building nightly x86_64_v3 variant with -march=x86-64-v3"
-              ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
-            fi
-          else
-            echo "Building nightly for aarch64"
-            ARCH_FLAGS="-march=armv8-a -mtune=generic -O3"
+          if [ "${{ matrix.variant }}" = "default" ]; then
+            echo "Building nightly default variant with -march=x86-64"
+            ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
+          else  # x86_64_v3
+            echo "Building nightly x86_64_v3 variant with -march=x86-64-v3"
+            ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
           fi
           
           # Clone nightly repository
@@ -336,8 +362,19 @@ jobs:
           
           git submodule update --init --recursive -j$(nproc)
           
-          # Fix Boost ASIO
-          find src -type f -name "*.cpp" -exec sed -i "s/boost::asio::io_service/boost::asio::io_context/g" {} \;
+          # Debug: Check directory structure
+          echo "Listing contents of citron directory:"
+          ls -la
+          echo "Listing contents of src directory (if it exists):"
+          ls -la src || echo "src directory not found"
+          
+          # Fix Boost ASIO only if src directory exists and contains .cpp files
+          if [ -d "src" ] && [ -n "$(find src -type f -name '*.cpp' 2>/dev/null)" ]; then
+            echo "Applying Boost ASIO fix..."
+            find src -type f -name "*.cpp" -exec sed -i "s/boost::asio::io_service/boost::asio::io_context/g" {} \;
+          else
+            echo "Skipping Boost ASIO fix: src directory not found or contains no .cpp files"
+          fi
           
           # Build Citron
           mkdir build && cd build
@@ -457,9 +494,6 @@ jobs:
           }
           
           # Configure AppRun
-          if [ "$ARCH" = "aarch64" ]; then
-            echo "SHARUN_ALLOW_SYS_VKICD=1" > ./.env
-          fi
           ln ./sharun ./AppRun
           ./sharun -g
           
@@ -485,9 +519,9 @@ jobs:
         run: |
           FULL_COMMIT=$(cat full_commit.txt)
           
-          # Check if the nightly release exists
+          # Check if the nightly release exists in zqpvr/citron-builds
           RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/zqpvr/Citron/releases/tags/nightly")
+            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/nightly")
           
           # Extract release ID if it exists
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
@@ -496,31 +530,31 @@ jobs:
             echo "Nightly release exists, deleting old assets..."
             # Get list of assets
             ASSETS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/zqpvr/Citron/releases/$RELEASE_ID/assets")
+              "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets")
             ASSET_IDS=$(echo "$ASSETS_RESPONSE" | grep '"id":' | sed -E 's/.*"id": ([0-9]+),.*/\1/')
             
             # Delete each asset
             for ASSET_ID in $ASSET_IDS; do
               curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-                "https://api.github.com/repos/zqpvr/Citron/releases/assets/$ASSET_ID"
+                "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID"
             done
             
             echo "Updating existing release..."
             curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
               -H "Content-Type: application/json" \
-              "https://api.github.com/repos/zqpvr/Citron/releases/$RELEASE_ID" \
+              "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" \
               -d "{\"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}"
           else
             echo "Creating new nightly release..."
             curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
               -H "Content-Type: application/json" \
-              "https://api.github.com/repos/zqpvr/Citron/releases" \
+              "https://api.github.com/repos/zqpvr/citron-builds/releases" \
               -d "{\"tag_name\": \"nightly\", \"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}"
           fi
           
           # Get the updated release ID
           RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/zqpvr/Citron/releases/tags/nightly")
+            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/nightly")
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
           
           # Upload new assets
@@ -529,5 +563,5 @@ jobs:
             curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$ASSET" \
-              "https://uploads.github.com/repos/zqpvr/Citron/releases/$RELEASE_ID/assets?name=$(basename "$ASSET")"
+              "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets?name=$(basename "$ASSET")"
           done
