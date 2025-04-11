@@ -63,7 +63,7 @@ jobs:
         run: |
           # Set architecture flags for optimized variant
           export ARCH="x86_64"
-          echo "Building stable optimized variantWITH -march=x86-64-v3"
+          echo "Building stable optimized variant."
           ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
 
           # Clone stable repository
@@ -72,7 +72,7 @@ jobs:
           cd ./citron
           echo "Checking out commit 51800e249bc44bd13b528220a8e064c3744c05d1"
           git checkout 51800e249bc44bd13b528220a8e064c3744c05d1
-          VERSION="0.6.1"
+          VERSION="v0.6.1"
 
           # Update .gitmodules with new URLs (only changing git.citron-emu.org ones)
           echo "Updating .gitmodules with new submodule URLs..."
