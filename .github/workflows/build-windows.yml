@@ -160,9 +160,10 @@ jobs:
 
       - name: Set up VCPKG
         run: |
-          # Clone VCPKG
+          # Clone VCPKG at a specific commit for reproducibility
           git clone https://github.com/microsoft/vcpkg.git
           cd vcpkg
+          git checkout 2025.02.14
           # Bootstrap VCPKG
           .\bootstrap-vcpkg.bat
           # Integrate VCPKG with Visual Studio
@@ -172,18 +173,36 @@ jobs:
           cd ..
 
       - name: Restore VCPKG Binary Cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: D:/a/citron-builds/citron-builds/vcpkg/installed
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          path: vcpkg/installed
+          key: vcpkg-binary-cache-${{ runner.os }}-2025.02.14-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
+            vcpkg-binary-cache-${{ runner.os }}-2025.02.14-
             vcpkg-binary-cache-${{ runner.os }}-
 
       - name: Install dependencies with VCPKG
         run: |
           cd vcpkg
-          # Install required dependencies (excluding FFmpeg)
-          .\vcpkg install boost:x64-windows libusb:x64-windows opus:x64-windows zlib:x64-windows zstd:x64-windows
+          # Install dependencies with retries for transient failures
+          $attempt = 1
+          $maxAttempts = 3
+          while ($attempt -le $maxAttempts) {
+            Write-Output "Attempt $attempt of $maxAttempts to install VCPKG dependencies..."
+            try {
+              .\vcpkg install boost:x64-windows libusb:x64-windows opus:x64-windows zlib:x64-windows zstd:x64-windows --recurse
+              Write-Output "VCPKG dependencies installed successfully."
+              break
+            } catch {
+              Write-Output "Attempt $attempt failed: $_"
+              if ($attempt -eq $maxAttempts) {
+                Write-Error "Failed to install VCPKG dependencies after $maxAttempts attempts."
+                exit 1
+              }
+              Start-Sleep -Seconds 5
+            }
+            $attempt++
+          }
           cd ..
 
       - name: Build Citron for Windows
