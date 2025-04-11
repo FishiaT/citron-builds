@@ -21,8 +21,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install CMake
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          # Install CMake 3.4.3 (older version for compatibility)
+          choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
           # Ensure Git PATH is set (Git is pre-installed)
           Write-Output "Configuring Git PATH..."
@@ -160,8 +160,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install CMake
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          # Install CMake 3.4.3 (older version for compatibility)
+          choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
           # Ensure Git PATH is set (Git is pre-installed)
           Write-Output "Configuring Git PATH..."
@@ -259,7 +259,6 @@ jobs:
         env:
           CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
         run: |
-          $RELEASE conces
           $RELEASE_TAG = "nightly"
           # Check if release exists
           $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/$RELEASE_TAG" -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" } -ErrorAction SilentlyContinue
