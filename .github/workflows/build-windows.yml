@@ -1,0 +1,216 @@
+name: Build Citron for Windows
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Ensures all files are available
+
+      - name: Set up Visual Studio 2022
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '17.0'  # Visual Studio 2022
+          vs-where: '%ProgramFiles(x86)%\Microsoft Visual Studio\2022\Enterprise'
+
+      - name: Install CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '3.28'  # Use a recent version
+
+      - name: Install Git
+        uses: git-for-windows/git@latest
+        with:
+          version: 'latest'
+
+      - name: Install Python and aqtinstall
+        run: |
+          # Install Python
+          choco install python --version=3.11.0 -y
+          # Refresh environment variables
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+          # Install aqtinstall
+          pip install aqtinstall
+
+      - name: Install Qt via aqtinstall
+        run: |
+          # Use aqtinstall to download and install Qt 6.5.3 for MSVC 2022 64-bit
+          aqt install-qt --outputdir C:/Qt windows desktop 6.5.3 win64_msvc2022_64 -m qtcore qtgui qtwidgets
+          # Set Qt environment variable
+          echo "QT6_DIR=C:/Qt/6.5.3/msvc2022_64/lib/cmake/Qt6" >> $GITHUB_ENV
+
+      - name: Set up VCPKG
+        run: |
+          # Clone VCPKG
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          # Bootstrap VCPKG
+          .\bootstrap-vcpkg.bat
+          # Integrate VCPKG with Visual Studio
+          .\vcpkg integrate install
+          # Set VCPKG_ROOT environment variable
+          echo "VCPKG_ROOT=$PWD" >> $GITHUB_ENV
+          cd ..
+
+      - name: Install dependencies with VCPKG
+        run: |
+          cd vcpkg
+          # Install required dependencies
+          .\vcpkg install boost:x64-windows
+          .\vcpkg install ffmpeg:x64-windows
+          .\vcpkg install libusb:x64-windows
+          .\vcpkg install opus:x64-windows
+          .\vcpkg install zlib:x64-windows
+          .\vcpkg install zstd:x64-windows
+          cd ..
+
+      - name: Build Citron for Windows
+        run: |
+          # Clone the repository (same commit as nightly)
+          git clone https://git.citron-emu.org/Citron/Citron.git ./citron
+          cd ./citron
+          git checkout 19febba866d227cc16f8b3c814d6d5ae06c4d7a7
+          $FULL_COMMIT = $(git rev-parse HEAD)
+          $VERSION = $FULL_COMMIT
+          
+          # Initialize submodules
+          git submodule update --init --recursive
+          
+          # Create build directory
+          mkdir build
+          cd build
+          
+          # Configure CMake with optimizations
+          cmake .. -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DUSE_DISCORD_PRESENCE=OFF `
+            -DENABLE_QT=ON `
+            -DQT6_DIR="$env:QT6_DIR" `
+            -DCMAKE_CXX_FLAGS="/O2 /GL /arch:AVX2" `
+            -DCMAKE_C_FLAGS="/O2 /GL /arch:AVX2" `
+            -DCMAKE_BUILD_TYPE=Release
+          
+          # Build
+          cmake --build . --config Release
+          
+          # Save version and commit info
+          cd ..
+          echo $VERSION | Out-File -FilePath version.txt
+          echo $FULL_COMMIT | Out-File -FilePath full_commit.txt
+
+      - name: Package Windows Build
+        run: |
+          $VERSION = Get-Content -Path ./citron/version.txt
+          $FULL_COMMIT = Get-Content -Path ./citron/full_commit.txt
+          
+          # Create a directory for the package
+          mkdir Citron-Windows
+          cd Citron-Windows
+          
+          # Copy the executable
+          Copy-Item ../citron/build/bin/Release/citron.exe .
+          
+          # Copy Qt DLLs and other dependencies
+          Copy-Item "C:/Qt/6.5.3/msvc2022_64/bin/Qt6Core.dll" .
+          Copy-Item "C:/Qt/6.5.3/msvc2022_64/bin/Qt6Gui.dll" .
+          Copy-Item "C:/Qt/6.5.3/msvc2022_64/bin/Qt6Widgets.dll" .
+          
+          # Create a zip file
+          Compress-Archive -Path * -DestinationPath ../Citron-$FULL_COMMIT-windows-optimized.zip
+          cd ..
+
+      - name: Debug Token and Permissions (Windows)
+        env:
+          CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
+        run: |
+          # Check if CITRON_RELEASE_TOKEN is set
+          if (-not $env:CITRON_RELEASE_TOKEN) {
+            Write-Error "CITRON_RELEASE_TOKEN is not set. Please add it to the repository secrets."
+            exit 1
+          } else {
+            Write-Output "CITRON_RELEASE_TOKEN is set (length: $($env:CITRON_RELEASE_TOKEN.Length) characters)."
+          }
+          
+          # Test the token by fetching user info
+          Write-Output "Testing CITRON_RELEASE_TOKEN by fetching user info..."
+          $USER_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/user" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+          Write-Output "User response: $USER_RESPONSE"
+          
+          # Check if the token has access to zqpvr/citron-builds
+          Write-Output "Checking access to zqpvr/citron-builds..."
+          $REPO_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+          Write-Output "Repo response: $REPO_RESPONSE"
+          
+          # Check for specific permissions
+          $USERNAME = $USER_RESPONSE.login
+          Write-Output "Checking permissions for user $USERNAME..."
+          $PERMS_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/collaborators/$USERNAME/permission" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Accept" = "application/vnd.github.v3+json" }
+          Write-Output "Permissions response: $PERMS_RESPONSE"
+
+      - name: Create or Update Windows Nightly Release
+        env:
+          CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
+        run: |
+          $FULL_COMMIT = Get-Content -Path ./citron/full_commit.txt
+          
+          # Check if the nightly release exists in zqpvr/citron-builds
+          Write-Output "Checking if windows-nightly release exists..."
+          $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/windows-nightly" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+          Write-Output "Release response: $RELEASE_RESPONSE"
+          
+          # Extract release ID if it exists
+          $RELEASE_ID = $RELEASE_RESPONSE.id
+          
+          if ($RELEASE_ID) {
+            Write-Output "Windows nightly release exists, deleting old assets..."
+            # Get list of assets
+            $ASSETS_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+            Write-Output "Assets response: $ASSETS_RESPONSE"
+            
+            # Delete each asset
+            foreach ($ASSET in $ASSETS_RESPONSE) {
+              $ASSET_ID = $ASSET.id
+              Write-Output "Deleting asset ID $ASSET_ID..."
+              $DELETE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID" -Method Delete -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+              Write-Output "Delete response for asset $ASSET_ID: $DELETE_RESPONSE"
+            }
+            
+            Write-Output "Updating existing release..."
+            $UPDATE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" -Method Patch -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body (@{ "name" = "Windows Continuous Build (Nightly Version: $FULL_COMMIT)"; "prerelease" = $true } | ConvertTo-Json)
+            Write-Output "Update response: $UPDATE_RESPONSE"
+            if ($UPDATE_RESPONSE.message) {
+              Write-Error "Error updating release: $UPDATE_RESPONSE"
+              exit 1
+            }
+          } else {
+            Write-Output "Creating new windows-nightly release..."
+            $CREATE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases" -Method Post -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body (@{ "tag_name" = "windows-nightly"; "name" = "Windows Continuous Build (Nightly Version: $FULL_COMMIT)"; "prerelease" = $true } | ConvertTo-Json)
+            Write-Output "Create response: $CREATE_RESPONSE"
+            if ($CREATE_RESPONSE.message) {
+              Write-Error "Error creating release: $CREATE_RESPONSE"
+              exit 1
+            }
+          }
+          
+          # Get the updated release ID
+          $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/windows-nightly" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+          $RELEASE_ID = $RELEASE_RESPONSE.id
+          
+          # Upload new assets
+          $ASSET_PATH = "Citron-$FULL_COMMIT-windows-optimized.zip"
+          Write-Output "Uploading $ASSET_PATH..."
+          $UPLOAD_URL = "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets?name=$(Split-Path $ASSET_PATH -Leaf)"
+          $UPLOAD_RESPONSE = Invoke-RestMethod -Uri $UPLOAD_URL -Method Post -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/octet-stream" } -InFile $ASSET_PATH
+          Write-Output "Upload response for $ASSET_PATH: $UPLOAD_RESPONSE"
+          if ($UPLOAD_RESPONSE.message) {
+            Write-Error "Error uploading $ASSET_PATH: $UPLOAD_RESPONSE"
+            exit 1
+          }
