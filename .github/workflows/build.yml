@@ -10,9 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux/archlinux
-    strategy:
-      matrix:
-        variant: [compatibility, optimized, steam_deck]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,20 +61,13 @@ jobs:
 
       - name: Build Citron Stable
         run: |
-          # Set architecture flags based on variant
+          # Set architecture flags for optimized variant
           export ARCH="x86_64"
-          if [ "${{ matrix.variant }}" = "compatibility" ]; then
-            echo "Building stable compatibility variant with -march=x86-64"
-            ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
-          elif [ "${{ matrix.variant }}" = "optimized" ]; then
-            echo "Building stable optimized variant with -march=x86-64-v3"
-            ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
-          else  # steam_deck
-            echo "Building stable Steam Deck variant with -march=znver2"
-            ARCH_FLAGS="-march=znver2 -mtune=znver2 -O3"
-          fi
+          echo "Building stable optimized variant with -march=x86-64-v3"
+          ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
           
           # Clone stable repository
+          # Note: Using https://git.citron-emu.org/Citron/Citron.git as the clone URL, checking out tag v0.6.1-canary-refresh
           echo "Cloning stable version from https://git.citron-emu.org/Citron/Citron"
           git clone https://git.citron-emu.org/Citron/Citron.git ./citron
           cd ./citron
@@ -147,7 +137,7 @@ jobs:
           sed -i "s|Name=citron|Name=citron stable|" ./citron.desktop
           
           # Define update info
-          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|stable-${{ matrix.variant }}|*$ARCH.AppImage.zsync"
+          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|stable-optimized|*$ARCH.AppImage.zsync"
           
           # Download lib4bin
           wget --retry-connrefused --tries=30 "https://raw.githubusercontent.com/VHSgunzo/sharun/refs/heads/main/lib4bin" -O ./lib4bin
@@ -224,7 +214,7 @@ jobs:
             --categorize=hotness --hotness-list=citron.dwfsprof \
             --compression zstd:level=22 -S26 -B32 \
             --header uruntime \
-            -i ./AppDir -o Citron-Linux-Canary-Refresh_"$VERSION"_"${{ matrix.variant }}".AppImage
+            -i ./AppDir -o Citron-Linux-Canary-Refresh_"$VERSION"_optimized.AppImage
           
           # Generate zsync
           zsyncmake *.AppImage -u *.AppImage
@@ -286,10 +276,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux/archlinux
-    strategy:
-      matrix:
-        variant: [default, x86_64_v3]
-        arch: [x86_64]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -341,15 +327,10 @@ jobs:
 
       - name: Build Citron Nightly
         run: |
-          # Set architecture flags based on variant
-          export ARCH="${{ matrix.arch }}"
-          if [ "${{ matrix.variant }}" = "default" ]; then
-            echo "Building nightly default variant with -march=x86-64"
-            ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
-          else  # x86_64_v3
-            echo "Building nightly x86_64_v3 variant with -march=x86-64-v3"
-            ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
-          fi
+          # Set architecture flags for optimized variant
+          export ARCH="x86_64"
+          echo "Building nightly optimized variant with -march=x86-64-v3"
+          ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
           
           # Clone nightly repository
           echo "Cloning nightly version from https://git.citron-emu.org/Citron/Citron"
@@ -413,14 +394,8 @@ jobs:
         run: |
           VERSION=$(cat version.txt)
           FULL_COMMIT=$(cat full_commit.txt)
-          ARCH="${{ matrix.arch }}"
-          
-          # Adjust architecture name for x86_64_v3 variant
-          if [ "${{ matrix.variant }}" = "x86_64_v3" ]; then
-            ARCH_NAME="x86_64_v3"
-          else
-            ARCH_NAME="$ARCH"
-          fi
+          ARCH="x86_64"
+          ARCH_NAME="x86_64_v3"  # Since this is the optimized variant
           
           # Set up AppDir
           mkdir ./AppDir
@@ -431,7 +406,7 @@ jobs:
           sed -i "s|Name=citron|Name=citron nightly|" ./citron.desktop
           
           # Define update info
-          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|nightly-${{ matrix.variant }}|*$ARCH_NAME.AppImage.zsync"
+          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|nightly-optimized|*$ARCH_NAME.AppImage.zsync"
           
           # Download lib4bin
           wget --retry-connrefused --tries=30 "https://raw.githubusercontent.com/VHSgunzo/sharun/refs/heads/main/lib4bin" -O ./lib4bin
