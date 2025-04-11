@@ -395,7 +395,7 @@ jobs:
         run: |
           # Set architecture flags for optimized variant
           export ARCH="x86_64"
-          echo "Building nightly optimized variant with -march=x86-64-v3"
+          echo "Building nightly optimized variant."
           ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
 
           # Clone nightly repository
