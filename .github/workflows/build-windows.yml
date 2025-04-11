@@ -75,8 +75,8 @@ jobs:
           # Debug: Show current working directory
           Write-Output "Current working directory: $PWD"
           
-          # Download FFmpeg prebuilt binaries
-          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
+          # Download FFmpeg prebuilt binaries (use win64-gpl-shared for libraries)
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip" -OutFile "ffmpeg.zip"
           
           # Debug: Confirm the zip file was downloaded
           if (-Not (Test-Path "ffmpeg.zip")) {
@@ -93,29 +93,30 @@ jobs:
           dir "ffmpeg"
           
           # Move the files (flatten the directory structure)
-          Move-Item -Path "ffmpeg/ffmpeg-master-latest-win64-gpl/*" -Destination "ffmpeg"
+          Move-Item -Path "ffmpeg/ffmpeg-master-latest-win64-gpl-shared/*" -Destination "ffmpeg"
           
           # Debug: List contents after moving
           Write-Output "Contents of ffmpeg directory after moving:"
           dir "ffmpeg"
           
-          # Debug: Confirm the bin directory exists
+          # Debug: Confirm the bin and lib directories exist
           if (-Not (Test-Path "ffmpeg/bin")) {
             Write-Error "ffmpeg/bin directory not found after extraction and move!"
             exit 1
           }
-          Write-Output "ffmpeg/bin directory exists."
+          if (-Not (Test-Path "ffmpeg/lib")) {
+            Write-Error "ffmpeg/lib directory not found after extraction and move!"
+            exit 1
+          }
+          Write-Output "ffmpeg/bin and ffmpeg/lib directories exist."
           
-          # Set environment variable for CMake to find FFmpeg (hardcode the path for reliability)
+          # Set environment variable for CMake to find FFmpeg
           $FFMPEG_PATH = "D:\a\citron-builds\citron-builds\ffmpeg"
           echo "FFMPEG_DIR=$FFMPEG_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           
-          # Debug: Show the contents of $GITHUB_ENV to confirm the variable was set
+          # Debug: Show the contents of $GITHUB_ENV
           Write-Output "Contents of `$GITHUB_ENV after setting FFMPEG_DIR:"
           Get-Content $env:GITHUB_ENV
-          
-          # Debug: Try to access FFMPEG_DIR in the same step (should be empty)
-          Write-Output "FFMPEG_DIR in same step (expected to be empty): $env:FFMPEG_DIR"
           
           # Add FFmpeg bin directory to PATH for runtime dependencies
           echo "$FFMPEG_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
@@ -131,7 +132,7 @@ jobs:
             exit 1
           }
           
-          # List FFmpeg files to confirm the presence of required libraries
+          # List FFmpeg bin and lib contents
           Write-Output "Listing contents of $env:FFMPEG_DIR\bin:"
           dir "$env:FFMPEG_DIR\bin" -ErrorAction Stop
           
@@ -155,6 +156,7 @@ jobs:
             Write-Error "swscale.lib not found!"
             exit 1
           }
+          Write-Output "All required FFmpeg libraries found."
 
       - name: Set up VCPKG
         run: |
@@ -286,11 +288,14 @@ jobs:
           
           # Check if the nightly release exists in zqpvr/citron-builds
           Write-Output "Checking if windows-nightly release exists..."
-          $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/windows-nightly" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-          Write-Output "Release response: $RELEASE_RESPONSE"
-          
-          # Extract release ID if it exists
-          $RELEASE_ID = $RELEASE_RESPONSE.id
+          try {
+            $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/windows-nightly" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+            Write-Output "Release response: $RELEASE_RESPONSE"
+            $RELEASE_ID = $RELEASE_RESPONSE.id
+          } catch {
+            Write-Output "Windows-nightly release does not exist, will create a new one."
+            $RELEASE_ID = $null
+          }
           
           if ($RELEASE_ID) {
             Write-Output "Windows nightly release exists, deleting old assets..."
@@ -302,15 +307,15 @@ jobs:
             foreach ($ASSET in $ASSETS_RESPONSE) {
               $ASSET_ID = $ASSET.id
               Write-Output "Deleting asset ID $ASSET_ID..."
-              $DELETE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID" -Method Delete -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-              Write-Output "Delete response for asset $ASSET_ID: $DELETE_RESPONSE"
+              Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID" -Method Delete -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
+              Write-Output "Asset $ASSET_ID deleted."
             }
             
             Write-Output "Updating existing release..."
             $UPDATE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" -Method Patch -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body (@{ "name" = "Windows Continuous Build (Nightly Version: $FULL_COMMIT)"; "prerelease" = $true } | ConvertTo-Json)
             Write-Output "Update response: $UPDATE_RESPONSE"
             if ($UPDATE_RESPONSE.message) {
-              Write-Error "Error updating release: $UPDATE_RESPONSE"
+              Write-Error "Error updating release: $UPDATE_RESPONSE.message"
               exit 1
             }
           } else {
@@ -318,14 +323,11 @@ jobs:
             $CREATE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases" -Method Post -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body (@{ "tag_name" = "windows-nightly"; "name" = "Windows Continuous Build (Nightly Version: $FULL_COMMIT)"; "prerelease" = $true } | ConvertTo-Json)
             Write-Output "Create response: $CREATE_RESPONSE"
             if ($CREATE_RESPONSE.message) {
-              Write-Error "Error creating release: $CREATE_RESPONSE"
+              Write-Error "Error creating release: $CREATE_RESPONSE.message"
               exit 1
             }
+            $RELEASE_ID = $CREATE_RESPONSE.id
           }
-          
-          # Get the updated release ID
-          $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/windows-nightly" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-          $RELEASE_ID = $RELEASE_RESPONSE.id
           
           # Upload new assets
           $ASSET_PATH = "Citron-$FULL_COMMIT-windows-optimized.zip"
@@ -334,6 +336,6 @@ jobs:
           $UPLOAD_RESPONSE = Invoke-RestMethod -Uri $UPLOAD_URL -Method Post -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/octet-stream" } -InFile $ASSET_PATH
           Write-Output "Upload response for $ASSET_PATH: $UPLOAD_RESPONSE"
           if ($UPLOAD_RESPONSE.message) {
-            Write-Error "Error uploading $ASSET_PATH: $UPLOAD_RESPONSE"
+            Write-Error "Error uploading $ASSET_PATH: $UPLOAD_RESPONSE.message"
             exit 1
           }
