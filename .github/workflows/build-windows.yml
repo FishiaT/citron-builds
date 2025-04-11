@@ -48,9 +48,10 @@ jobs:
           python-version: '3.10' # Or the version required by Citron build scripts
 
       - name: Set up Ninja
-        uses: ninja-build/setup-ninja@v1
+        # *** FIXED HERE: Use specific version tag @v1.1.1 instead of @v1 ***
+        uses: ninja-build/setup-ninja@v1.1.1
         with:
-          version: '1.11.1' # Use a specific version
+          version: '1.11.1' # This 'version' is for the Ninja *binary*, not the action
 
       - name: Clone Citron Source (Stable)
         shell: pwsh
@@ -280,9 +281,10 @@ jobs:
           python-version: '3.10'
 
       - name: Set up Ninja
-        uses: ninja-build/setup-ninja@v1
+        # *** FIXED HERE: Use specific version tag @v1.1.1 instead of @v1 ***
+        uses: ninja-build/setup-ninja@v1.1.1
         with:
-          version: '1.11.1'
+          version: '1.11.1' # This 'version' is for the Ninja *binary*, not the action
 
       - name: Clone Citron Source (Nightly)
         shell: pwsh
