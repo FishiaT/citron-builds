@@ -24,32 +24,31 @@ jobs:
           # Install CMake
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
-          # Install Git
-          choco install git -y
-          refreshenv
+          # Ensure Git PATH is set (Git is pre-installed)
+          Write-Output "Configuring Git PATH..."
+          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+          Update-SessionEnvironment
+          $env:PATH = "$env:PATH;C:\Program Files\Git\bin"
+          Write-Output "Git PATH configured: $env:PATH"
 
-          # Install Vulkan SDK
-          $VULKAN_VERSION = "1.4.309.0"  # Updated to latest version
+          # Install 7-Zip
+          choco install 7zip -y
+          Update-SessionEnvironment
+          Write-Output "7-Zip installed"
+
+          # Download and extract Vulkan SDK
+          $VULKAN_VERSION = "1.4.309.0"
           $VULKAN_URL = "https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/windows/VulkanSDK-${VULKAN_VERSION}-Installer.exe"
           Invoke-WebRequest -Uri $VULKAN_URL -OutFile "VulkanSDK-Installer.exe"
-          Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait
-          # Retry deletion to handle potential file locks
-          $maxRetries = 3
-          $retryCount = 0
-          while ($retryCount -lt $maxRetries) {
-            try {
-              Remove-Item -Path "VulkanSDK-Installer.exe" -ErrorAction Stop
-              Write-Output "Successfully deleted VulkanSDK-Installer.exe"
-              break
-            } catch {
-              $retryCount++
-              Write-Output "Failed to delete VulkanSDK-Installer.exe (Attempt $retryCount/$maxRetries). Retrying..."
-              Start-Sleep -Seconds 2
-              if ($retryCount -eq $maxRetries) {
-                Write-Output "Warning: Could not delete VulkanSDK-Installer.exe. Continuing..."
-              }
-            }
-          }
+          # Extract with 7-Zip
+          7z x VulkanSDK-Installer.exe -oVulkanSDK
+          # Set Vulkan SDK environment variables
+          $VULKAN_SDK_PATH = Resolve-Path "VulkanSDK"
+          $env:VULKAN_SDK = "$VULKAN_SDK_PATH"
+          $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
+          echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+          Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH. PATH: $env:PATH"
+        shell: powershell
 
       - name: Clone Citron Stable
         run: |
@@ -60,6 +59,7 @@ jobs:
           git checkout 51800e249bc44bd13b528220a8e064c3744c05d1
           $VERSION = "0.6.1"
           echo "VERSION=$VERSION" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+        shell: powershell
 
       - name: Configure CMake
         run: |
@@ -77,12 +77,15 @@ jobs:
             -DENABLE_QT_TRANSLATION=ON `
             -DUSE_DISCORD_PRESENCE=OFF `
             -DBUNDLE_SPEEX=ON `
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release `
+            -DVULKAN_SDK="$env:VULKAN_SDK"
+        shell: powershell
 
       - name: Build Citron
         run: |
           cd citron/build
           cmake --build . --config Release
+        shell: powershell
 
       - name: Package Citron
         run: |
@@ -93,6 +96,7 @@ jobs:
           Copy-Item -Path "externals/ffmpeg-*/bin/*.dll" -Destination "Citron-$env:VERSION-windows/" -ErrorAction SilentlyContinue
           # Package into zip
           Compress-Archive -Path "Citron-$env:VERSION-windows" -DestinationPath "Citron-$env:VERSION-windows.zip"
+        shell: powershell
 
       - name: Debug Token and Permissions
         env:
@@ -110,6 +114,7 @@ jobs:
           # Check repo access
           $REPO_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds" -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" }
           Write-Output "Repo response: $REPO_RESPONSE"
+        shell: powershell
 
       - name: Create or Update Stable Release
         env:
@@ -138,6 +143,7 @@ jobs:
           Write-Output "Uploading $ASSET_PATH..."
           $UPLOAD_URL = $RELEASE_RESPONSE.upload_url -replace "{.*}", "?name=$(Split-Path $ASSET_PATH -Leaf)"
           Invoke-RestMethod -Method Post -Uri $UPLOAD_URL -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/octet-stream" } -InFile $ASSET_PATH
+        shell: powershell
 
   build-nightly:
     runs-on: windows-latest
@@ -157,32 +163,31 @@ jobs:
           # Install CMake
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
-          # Install Git
-          choco install git -y
-          refreshenv
+          # Ensure Git PATH is set (Git is pre-installed)
+          Write-Output "Configuring Git PATH..."
+          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+          Update-SessionEnvironment
+          $env:PATH = "$env:PATH;C:\Program Files\Git\bin"
+          Write-Output "Git PATH configured: $env:PATH"
 
-          # Install Vulkan SDK
-          $VULKAN_VERSION = "1.4.309.0"  # Updated to latest version
+          # Install 7-Zip
+          choco install 7zip -y
+          Update-SessionEnvironment
+          Write-Output "7-Zip installed"
+
+          # Download and extract Vulkan SDK
+          $VULKAN_VERSION = "1.4.309.0"
           $VULKAN_URL = "https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/windows/VulkanSDK-${VULKAN_VERSION}-Installer.exe"
           Invoke-WebRequest -Uri $VULKAN_URL -OutFile "VulkanSDK-Installer.exe"
-          Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait
-          # Retry deletion to handle potential file locks
-          $maxRetries = 3
-          $retryCount = 0
-          while ($retryCount -lt $maxRetries) {
-            try {
-              Remove-Item -Path "VulkanSDK-Installer.exe" -ErrorAction Stop
-              Write-Output "Successfully deleted VulkanSDK-Installer.exe"
-              break
-            } catch {
-              $retryCount++
-              Write-Output "Failed to delete VulkanSDK-Installer.exe (Attempt $retryCount/$maxRetries). Retrying..."
-              Start-Sleep -Seconds 2
-              if ($retryCount -eq $maxRetries) {
-                Write-Output "Warning: Could not delete VulkanSDK-Installer.exe. Continuing..."
-              }
-            }
-          }
+          # Extract with 7-Zip
+          7z x VulkanSDK-Installer.exe -oVulkanSDK
+          # Set Vulkan SDK environment variables
+          $VULKAN_SDK_PATH = Resolve-Path "VulkanSDK"
+          $env:VULKAN_SDK = "$VULKAN_SDK_PATH"
+          $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
+          echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+          Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH. PATH: $env:PATH"
+        shell: powershell
 
       - name: Clone Citron Nightly
         run: |
@@ -193,6 +198,7 @@ jobs:
           $FULL_COMMIT = $(git rev-parse HEAD)
           echo "VERSION=$VERSION" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
           echo "FULL_COMMIT=$FULL_COMMIT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+        shell: powershell
 
       - name: Configure CMake
         run: |
@@ -210,12 +216,15 @@ jobs:
             -DENABLE_QT_TRANSLATION=ON `
             -DUSE_DISCORD_PRESENCE=OFF `
             -DBUNDLE_SPEEX=ON `
-            -CMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release `
+            -DVULKAN_SDK="$env:VULKAN_SDK"
+        shell: powershell
 
       - name: Build Citron
         run: |
           cd citron/build
           cmake --build . --config Release
+        shell: powershell
 
       - name: Package Citron
         run: |
@@ -226,6 +235,7 @@ jobs:
           Copy-Item -Path "externals/ffmpeg-*/bin/*.dll" -Destination "Citron-$env:VERSION-windows/" -ErrorAction SilentlyContinue
           # Package into zip
           Compress-Archive -Path "Citron-$env:VERSION-windows" -DestinationPath "Citron-$env:VERSION-windows.zip"
+        shell: powershell
 
       - name: Debug Token and Permissions
         env:
@@ -243,11 +253,13 @@ jobs:
           # Check repo access
           $REPO_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds" -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" }
           Write-Output "Repo response: $REPO_RESPONSE"
+        shell: powershell
 
       - name: Create or Update Nightly Release
         env:
           CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
         run: |
+          $RELEASE conces
           $RELEASE_TAG = "nightly"
           # Check if release exists
           $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/$RELEASE_TAG" -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" } -ErrorAction SilentlyContinue
@@ -271,3 +283,4 @@ jobs:
           Write-Output "Uploading $ASSET_PATH..."
           $UPLOAD_URL = $RELEASE_RESPONSE.upload_url -replace "{.*}", "?name=$(Split-Path $ASSET_PATH -Leaf)"
           Invoke-RestMethod -Method Post -Uri $UPLOAD_URL -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/octet-stream" } -InFile $ASSET_PATH
+        shell: powershell
