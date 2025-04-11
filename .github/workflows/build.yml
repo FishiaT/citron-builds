@@ -6,15 +6,18 @@ on:
       - main
 
 jobs:
-  build:
+  build-stable:
     runs-on: ubuntu-latest
     container:
       image: archlinux/archlinux
+    strategy:
+      matrix:
+        variant: [compatibility, optimized, steam_deck]  # Changed 'native' to 'optimized'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensures all files are available
+          fetch-depth: 0  # Ensures all files are available, including citron.dwfsprof
 
       - name: Install dependencies
         run: |
@@ -67,26 +70,37 @@ jobs:
           # Clean up
           rm -f ./qt6-base-iculess.pkg.tar.zst ./libxml2-iculess.pkg.tar.zst ./ffmpeg-mini-$PKG_TYPE ./llvm-libs.pkg.tar.zst
 
-      - name: Build Citron
+      - name: Build Citron Stable
         run: |
-          # Set architecture flags
+          # Set architecture flags based on variant
           export ARCH="$(uname -m)"
           if [ "$ARCH" = "x86_64" ]; then
-            echo "Making x86-64 generic build of citron"
-            ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
+            if [ "${{ matrix.variant }}" = "compatibility" ]; then
+              echo "Building stable compatibility variant with -march=x86-64"
+              ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
+            elif [ "${{ matrix.variant }}" = "optimized" ]; then
+              echo "Building stable optimized variant with -march=x86-64-v3"
+              ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
+            else  # steam_deck
+              echo "Building stable Steam Deck variant with -march=znver2"
+              ARCH_FLAGS="-march=znver2 -mtune=znver2 -O3"
+            fi
           else
-            echo "Making aarch64 build of citron"
+            echo "Building stable for aarch64"
             ARCH_FLAGS="-march=armv8-a -mtune=generic -O3"
           fi
           
-          # Clone Citron and checkout specific commit
-          git clone https://git.citron-emu.org/Citron/Citron.git ./citron
+          # Clone stable repository
+          echo "Cloning stable version from https://github.com/zqpvr/Citron"
+          git clone https://github.com/zqpvr/Citron.git ./citron
           cd ./citron
-          git checkout 19febba866d227cc16f8b3c814d6d5ae06c4d7a7
-          VERSION=$(git rev-parse --short HEAD)
+          echo "Checking out tag v0.6.1"
+          git checkout v0.6.1
+          VERSION="0.6.1"
+          
           git submodule update --init --recursive -j$(nproc)
           
-          # Fix Boost ASIO
+          # Fix Boost ASIO (may not be needed for v0.6.1, but keeping for consistency)
           find src -type f -name "*.cpp" -exec sed -i "s/boost::asio::io_service/boost::asio::io_context/g" {} \;
           
           # Build Citron
@@ -119,7 +133,7 @@ jobs:
           cd ../..
           echo "$VERSION" > version.txt
 
-      - name: Create AppImage
+      - name: Create AppImage Stable
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -132,10 +146,10 @@ jobs:
           cp /usr/share/applications/org.citron_emu.citron.desktop ./citron.desktop
           cp /usr/share/icons/hicolor/scalable/apps/org.citron_emu.citron.svg ./citron.svg
           ln -s ./citron.svg ./.DirIcon
-          sed -i "s|Name=citron|Name=citron nightly|" ./citron.desktop
+          sed -i "s|Name=citron|Name=citron stable|" ./citron.desktop
           
           # Define update info
-          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|nightly|*$ARCH.AppImage.zsync"
+          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|stable-${{ matrix.variant }}|*$ARCH.AppImage.zsync"
           
           # Download lib4bin
           wget --retry-connrefused --tries=30 "https://raw.githubusercontent.com/VHSgunzo/sharun/refs/heads/main/lib4bin" -O ./lib4bin
@@ -204,7 +218,7 @@ jobs:
           ln ./sharun ./AppRun
           ./sharun -g
           
-          # Create AppImage
+          # Create AppImage with variant-specific naming
           cd ..
           wget -q "https://github.com/VHSgunzo/uruntime/releases/latest/download/uruntime-appimage-dwarfs-$ARCH" -O ./uruntime
           chmod +x ./uruntime
@@ -215,13 +229,305 @@ jobs:
             --categorize=hotness --hotness-list=citron.dwfsprof \
             --compression zstd:level=22 -S26 -B32 \
             --header uruntime \
-            -i ./AppDir -o Citron-"$VERSION"-anylinux-"$ARCH".AppImage
+            -i ./AppDir -o Citron-Linux-Canary-Refresh_"$VERSION"_"${{ matrix.variant }}".AppImage
           
           # Generate zsync
           zsyncmake *.AppImage -u *.AppImage
 
-      - name: Upload AppImage
+      - name: Upload AppImage Stable
         uses: actions/upload-artifact@v4
         with:
-          name: Citron-AppImage
-          path: Citron-*.AppImage
+          name: Citron-AppImage-stable-${{ matrix.variant }}
+          path: Citron-*.AppImage*
+
+  build-nightly:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux/archlinux
+    strategy:
+      matrix:
+        variant: [default, x86_64_v3]  # Added x86_64_v3 variant
+        exclude:
+          - variant: x86_64_v3
+            arch: aarch64  # Exclude x86_64_v3 for aarch64
+        arch: [x86_64, aarch64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Ensures all files are available, including citron.dwfsprof
+
+      - name: Install dependencies
+        run: |
+          # Modify pacman.conf
+          sed -i 's/DownloadUser/#DownloadUser/g' /etc/pacman.conf
+          
+          # Determine package type
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            PKG_TYPE="x86_64.pkg.tar.zst"
+          else
+            PKG_TYPE="aarch64.pkg.tar.xz"
+          fi
+          
+          # URLs for custom packages
+          LLVM_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/llvm-libs-nano-$PKG_TYPE"
+          FFMPEG_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/ffmpeg-mini-$PKG_TYPE"
+          QT6_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/qt6-base-iculess-$PKG_TYPE"
+          LIBXML_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/libxml2-iculess-$PKG_TYPE"
+          
+          # Install system packages
+          pacman -Syu --noconfirm \
+            aom base-devel boost boost-libs catch2 clang cmake curl dav1d \
+            desktop-file-utils doxygen enet ffmpeg ffmpeg4.4 fmt gamemode git \
+            glslang glu hidapi libass libdecor libfdk-aac libopusenc libva \
+            libvpx libxi libxkbcommon-x11 libxss libzip mbedtls mbedtls2 mesa \
+            meson nasm ninja nlohmann-json numactl patchelf pipewire-audio \
+            pulseaudio pulseaudio-alsa python-pip qt6-base qt6ct qt6-multimedia \
+            qt6-tools qt6-wayland sdl2 strace unzip vulkan-headers vulkan-nouveau \
+            vulkan-radeon wget x264 x265 xcb-util-image xcb-util-renderutil \
+            xcb-util-wm xorg-server-xvfb zip zsync
+          
+          # Architecture-specific packages
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            pacman -Syu --noconfirm vulkan-intel haskell-gnutls gcc13 svt-av1
+          else
+            pacman -Syu --noconfirm vulkan-freedreno vulkan-panfrost
+          fi
+          
+          # Install custom packages
+          wget --retry-connrefused --tries=30 "$LLVM_URL" -O ./llvm-libs.pkg.tar.zst
+          wget --retry-connrefused --tries=30 "$FFMPEG_URL" -O ./ffmpeg-mini-$PKG_TYPE
+          wget --retry-connrefused --tries=30 "$QT6_URL" -O ./qt6-base-iculess.pkg.tar.zst
+          wget --retry-connrefused --tries=30 "$LIBXML_URL" -O ./libxml2-iculess.pkg.tar.zst
+          pacman -U --noconfirm \
+            ./qt6-base-iculess.pkg.tar.zst \
+            ./libxml2-iculess.pkg.tar.zst \
+            ./ffmpeg-mini-$PKG_TYPE \
+            ./llvm-libs.pkg.tar.zst
+          
+          # Clean up
+          rm -f ./qt6-base-iculess.pkg.tar.zst ./libxml2-iculess.pkg.tar.zst ./ffmpeg-mini-$PKG_TYPE ./llvm-libs.pkg.tar.zst
+
+      - name: Build Citron Nightly
+        run: |
+          # Set architecture flags based on variant
+          export ARCH="${{ matrix.arch }}"
+          if [ "$ARCH" = "x86_64" ]; then
+            if [ "${{ matrix.variant }}" = "default" ]; then
+              echo "Building nightly default variant with -march=x86-64"
+              ARCH_FLAGS="-march=x86-64 -mtune=generic -O3"
+            else  # x86_64_v3
+              echo "Building nightly x86_64_v3 variant with -march=x86-64-v3"
+              ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
+            fi
+          else
+            echo "Building nightly for aarch64"
+            ARCH_FLAGS="-march=armv8-a -mtune=generic -O3"
+          fi
+          
+          # Clone nightly repository
+          echo "Cloning nightly version from https://git.citron-emu.org/Citron/Citron"
+          git clone https://git.citron-emu.org/Citron/Citron.git ./citron
+          cd ./citron
+          echo "Checking out commit 19febba866d227cc16f8b3c814d6d5ae06c4d7a7"
+          git checkout 19febba866d227cc16f8b3c814d6d5ae06c4d7a7
+          VERSION=$(git rev-parse --short HEAD)
+          FULL_COMMIT="19febba866d227cc16f8b3c814d6d5ae06c4d7a7"
+          
+          git submodule update --init --recursive -j$(nproc)
+          
+          # Fix Boost ASIO
+          find src -type f -name "*.cpp" -exec sed -i "s/boost::asio::io_service/boost::asio::io_context/g" {} \;
+          
+          # Build Citron
+          mkdir build && cd build
+          cmake .. -GNinja \
+            -DCITRON_USE_BUNDLED_VCPKG=OFF \
+            -DCITRON_USE_BUNDLED_QT=OFF \
+            -DUSE_SYSTEM_QT=ON \
+            -DCITRON_USE_BUNDLED_FFMPEG=OFF \
+            -DCITRON_USE_BUNDLED_SDL2=ON \
+            -DCITRON_USE_EXTERNAL_SDL2=OFF \
+            -DCITRON_TESTS=OFF \
+            -DCITRON_CHECK_SUBMODULES=OFF \
+            -DCITRON_USE_LLVM_DEMANGLE=OFF \
+            -DCITRON_ENABLE_LTO=ON \
+            -DCITRON_USE_QT_MULTIMEDIA=OFF \
+            -DCITRON_USE_QT_WEB_ENGINE=OFF \
+            -DENABLE_QT_TRANSLATION=ON \
+            -DUSE_DISCORD_PRESENCE=OFF \
+            -DBUNDLE_SPEEX=ON \
+            -DCITRON_USE_FASTER_LD=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_CXX_FLAGS="$ARCH_FLAGS -Wno-error -w" \
+            -DCMAKE_C_FLAGS="$ARCH_FLAGS" \
+            -DCMAKE_SYSTEM_PROCESSOR="$ARCH" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          ninja
+          ninja install
+          cd ../..
+          echo "$VERSION" > version.txt
+          echo "$FULL_COMMIT" > full_commit.txt
+
+      - name: Create AppImage Nightly
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          VERSION=$(cat version.txt)
+          FULL_COMMIT=$(cat full_commit.txt)
+          ARCH="${{ matrix.arch }}"
+          
+          # Adjust architecture name for x86_64_v3 variant
+          if [ "${{ matrix.variant }}" = "x86_64_v3" ]; then
+            ARCH_NAME="x86_64_v3"
+          else
+            ARCH_NAME="$ARCH"
+          fi
+          
+          # Set up AppDir
+          mkdir ./AppDir
+          cd ./AppDir
+          cp /usr/share/applications/org.citron_emu.citron.desktop ./citron.desktop
+          cp /usr/share/icons/hicolor/scalable/apps/org.citron_emu.citron.svg ./citron.svg
+          ln -s ./citron.svg ./.DirIcon
+          sed -i "s|Name=citron|Name=citron nightly|" ./citron.desktop
+          
+          # Define update info
+          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|nightly-${{ matrix.variant }}|*$ARCH_NAME.AppImage.zsync"
+          
+          # Download lib4bin
+          wget --retry-connrefused --tries=30 "https://raw.githubusercontent.com/VHSgunzo/sharun/refs/heads/main/lib4bin" -O ./lib4bin
+          chmod +x ./lib4bin
+          
+          # Create a script for lib4bin to ensure proper formatting and add debugging
+          cat << 'EOF' > bundle-libs.sh
+          #!/bin/bash
+          set -e
+          echo "Listing ALSA libraries before bundling:"
+          ls -l /usr/lib/alsa-lib/ || echo "ALSA directory not found"
+          
+          # Run lib4bin with verbose output
+          xvfb-run -a -- ./lib4bin -p -v -e -s -k \
+            /usr/bin/citron* \
+            /usr/lib/libGLX* \
+            /usr/lib/libGL.so* \
+            /usr/lib/libEGL* \
+            /usr/lib/dri/* \
+            /usr/lib/vdpau/* \
+            /usr/lib/libvulkan* \
+            /usr/lib/libXss.so* \
+            /usr/lib/libdecor-0.so* \
+            /usr/lib/libgamemode.so* \
+            /usr/lib/qt6/plugins/audio/* \
+            /usr/lib/qt6/plugins/bearer/* \
+            /usr/lib/qt6/plugins/imageformats/* \
+            /usr/lib/qt6/plugins/iconengines/* \
+            /usr/lib/qt6/plugins/platforms/* \
+            /usr/lib/qt6/plugins/platformthemes/* \
+            /usr/lib/qt6/plugins/platforminputcontexts/* \
+            /usr/lib/qt6/plugins/styles/* \
+            /usr/lib/qt6/plugins/xcbglintegrations/* \
+            /usr/lib/qt6/plugins/wayland-*/* \
+            /usr/lib/pulseaudio/* \
+            /usr/lib/pipewire-0.3/* \
+            /usr/lib/spa-0.2/*/* \
+            /usr/lib/alsa-lib/*
+          
+          # Check for temporary scripts in /__w/_temp/
+          echo "Listing temporary scripts after lib4bin:"
+          ls -l /__w/_temp/ || echo "No temporary scripts found"
+          if [ -d /__w/_temp ]; then
+            for script in /__w/_temp/*.sh; do
+              if [ -f "$script" ]; then
+                echo "Contents of $script:"
+                cat "$script"
+              fi
+            done
+          fi
+          EOF
+          
+          # Make the script executable and run it
+          chmod +x bundle-libs.sh
+          echo "Running bundle-libs.sh..."
+          ./bundle-libs.sh || {
+            echo "lib4bin failed. Checking for temporary scripts..."
+            ls -l /__w/_temp/ || echo "No temporary scripts found"
+            exit 1
+          }
+          
+          # Configure AppRun
+          if [ "$ARCH" = "aarch64" ]; then
+            echo "SHARUN_ALLOW_SYS_VKICD=1" > ./.env
+          fi
+          ln ./sharun ./AppRun
+          ./sharun -g
+          
+          # Create AppImage with nightly naming
+          cd ..
+          wget -q "https://github.com/VHSgunzo/uruntime/releases/latest/download/uruntime-appimage-dwarfs-$ARCH" -O ./uruntime
+          chmod +x ./uruntime
+          ./uruntime --appimage-addupdinfo "$UPINFO"
+          ./uruntime --appimage-mkdwarfs -f \
+            --set-owner 0 --set-group 0 \
+            --no-history --no-create-timestamp \
+            --categorize=hotness --hotness-list=citron.dwfsprof \
+            --compression zstd:level=22 -S26 -B32 \
+            --header uruntime \
+            -i ./AppDir -o Citron-"$FULL_COMMIT"-anylinux-"$ARCH_NAME".AppImage
+          
+          # Generate zsync
+          zsyncmake *.AppImage -u *.AppImage
+
+      - name: Create or Update Nightly Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FULL_COMMIT=$(cat full_commit.txt)
+          
+          # Check if the nightly release exists
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/zqpvr/Citron/releases/tags/nightly")
+          
+          # Extract release ID if it exists
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
+          
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Nightly release exists, deleting old assets..."
+            # Get list of assets
+            ASSETS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/zqpvr/Citron/releases/$RELEASE_ID/assets")
+            ASSET_IDS=$(echo "$ASSETS_RESPONSE" | grep '"id":' | sed -E 's/.*"id": ([0-9]+),.*/\1/')
+            
+            # Delete each asset
+            for ASSET_ID in $ASSET_IDS; do
+              curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+                "https://api.github.com/repos/zqpvr/Citron/releases/assets/$ASSET_ID"
+            done
+            
+            echo "Updating existing release..."
+            curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/zqpvr/Citron/releases/$RELEASE_ID" \
+              -d "{\"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}"
+          else
+            echo "Creating new nightly release..."
+            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/zqpvr/Citron/releases" \
+              -d "{\"tag_name\": \"nightly\", \"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}"
+          fi
+          
+          # Get the updated release ID
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/zqpvr/Citron/releases/tags/nightly")
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
+          
+          # Upload new assets
+          for ASSET in Citron-*.AppImage*; do
+            echo "Uploading $ASSET..."
+            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$ASSET" \
+              "https://uploads.github.com/repos/zqpvr/Citron/releases/$RELEASE_ID/assets?name=$(basename "$ASSET")"
+          done
