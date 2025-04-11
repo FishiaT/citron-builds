@@ -167,6 +167,7 @@ jobs:
           ARCH="x86_64"
           ARCH_NAME="optimized"
           
+          # Set Ascertain that the user has permission to access this repository.
           # Set up AppDir
           mkdir ./AppDir
           cd ./AppDir
@@ -260,13 +261,13 @@ jobs:
 
       - name: Create or Update Stable Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
         run: |
           VERSION=$(cat version.txt)
           RELEASE_TAG="v0.6.1"
           
           # Check if the release exists in zqpvr/citron-builds
-          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $CITRON_RELEASE_TOKEN" \
             "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/$RELEASE_TAG")
           
           # Extract release ID if it exists
@@ -275,38 +276,38 @@ jobs:
           if [ -n "$RELEASE_ID" ]; then
             echo "Stable release $RELEASE_TAG exists, deleting old assets..."
             # Get list of assets
-            ASSETS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            ASSETS_RESPONSE=$(curl -s -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets")
             ASSET_IDS=$(echo "$ASSETS_RESPONSE" | grep '"id":' | sed -E 's/.*"id": ([0-9]+),.*/\1/')
             
             # Delete each asset
             for ASSET_ID in $ASSET_IDS; do
-              curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+              curl -s -X DELETE -H "Authorization: token $CITRON_RELEASE_TOKEN" \
                 "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID"
             done
             
             echo "Updating existing release..."
-            curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
+            curl -s -X PATCH -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" \
               -d "{\"name\": \"Stable Build (Version: $VERSION)\", \"prerelease\": false}"
           else
             echo "Creating new stable release $RELEASE_TAG..."
-            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            curl -s -X POST -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases" \
               -d "{\"tag_name\": \"$RELEASE_TAG\", \"name\": \"Stable Build (Version: $VERSION)\", \"prerelease\": false}"
           fi
           
           # Get the updated release ID
-          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $CITRON_RELEASE_TOKEN" \
             "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/$RELEASE_TAG")
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
           
           # Upload new assets
           for ASSET in Citron-*.AppImage*; do
             echo "Uploading $ASSET..."
-            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            curl -s -X POST -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$ASSET" \
               "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets?name=$(basename "$ASSET")"
@@ -421,7 +422,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_CXX_FLAGS="$ARCH_FLAGS -Wno-error -w" \
             -DCMAKE_C_FLAGS="$ARCH_FLAGS" \
-            -DCMAKE_SYSTEM_PROCESSOR="$ARCH" \
+            -DCMAKE_SYSTEM_PROCESSOR "x86_64" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           ninja
@@ -532,12 +533,12 @@ jobs:
 
       - name: Create or Update Nightly Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
         run: |
           FULL_COMMIT=$(cat full_commit.txt)
           
           # Check if the nightly release exists in zqpvr/citron-builds
-          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $CITRON_RELEASE_TOKEN" \
             "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/nightly")
           
           # Extract release ID if it exists
@@ -546,38 +547,38 @@ jobs:
           if [ -n "$RELEASE_ID" ]; then
             echo "Nightly release exists, deleting old assets..."
             # Get list of assets
-            ASSETS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            ASSETS_RESPONSE=$(curl -s -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets")
             ASSET_IDS=$(echo "$ASSETS_RESPONSE" | grep '"id":' | sed -E 's/.*"id": ([0-9]+),.*/\1/')
             
             # Delete each asset
             for ASSET_ID in $ASSET_IDS; do
-              curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+              curl -s -X DELETE -H "Authorization: token $CITRON_RELEASE_TOKEN" \
                 "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID"
             done
             
             echo "Updating existing release..."
-            curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
+            curl -s -X PATCH -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" \
               -d "{\"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}"
           else
             echo "Creating new nightly release..."
-            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            curl -s -X POST -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases" \
               -d "{\"tag_name\": \"nightly\", \"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}"
           fi
           
           # Get the updated release ID
-          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          RELEASE_RESPONSE=$(curl -s -H "Authorization: token $CITRON_RELEASE_TOKEN" \
             "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/nightly")
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
           
           # Upload new assets
           for ASSET in Citron-*.AppImage*; do
             echo "Uploading $ASSET..."
-            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            curl -s -X POST -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$ASSET" \
               "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets?name=$(basename "$ASSET")"
