@@ -25,12 +25,16 @@ jobs:
         with:
           cmakeVersion: '3.28'  # Use a recent version
 
-      - name: Install Python and aqtinstall
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+
+      - name: Install aqtinstall
         run: |
-          # Install Python
-          choco install python --version=3.11.0 -y
-          # Refresh environment variables
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+          # Verify Python version
+          python --version
           # Install aqtinstall
           pip install aqtinstall
 
