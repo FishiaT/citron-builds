@@ -63,7 +63,7 @@ jobs:
         run: |
           # Set architecture flags for optimized variant
           export ARCH="x86_64"
-          echo "Building stable optimized variant with -march=x86-64-v3"
+          echo "Building stable optimized variantWITH -march=x86-64-v3"
           ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
           
           # Clone stable repository
@@ -428,10 +428,10 @@ jobs:
           cd ./citron
           echo "Checking out commit 19febba866d227cc16f8b3c814d6d5ae06c4d7a7"
           git checkout 19febba866d227cc16f8b3c814d6d5ae06c4d7a7
-          VERSION=$(git rev-parse --short HEAD)
-          FULL_COMMIT="19febba866d227cc16f8b3c814d6d5ae06c4d7a7"
+          VERSION=$(git rev-parse --short=10 HEAD)
+          FULL_COMMIT=$(git rev-parse HEAD)
           
-          # Initialize submodules (fail if any cannot be cloned)
+          # Initialize submodules
           echo "Initializing submodules..."
           git submodule update --init --recursive -j$(nproc)
           
@@ -575,7 +575,7 @@ jobs:
             --categorize=hotness --hotness-list=citron.dwfsprof \
             --compression zstd:level=22 -S26 -B32 \
             --header uruntime \
-            -i ./AppDir -o Citron-"$FULL_COMMIT"-anylinux-"$ARCH_NAME".AppImage
+            -i ./AppDir -o Citron-"$VERSION"-anylinux-"$ARCH_NAME".AppImage
           
           # Generate zsync
           zsyncmake *.AppImage -u *.AppImage
@@ -614,6 +614,7 @@ jobs:
         env:
           CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
         run: |
+          VERSION=$(cat version.txt)
           FULL_COMMIT=$(cat full_commit.txt)
           
           # Check if the nightly release exists in zqpvr/citron-builds
@@ -645,7 +646,7 @@ jobs:
             UPDATE_RESPONSE=$(curl -s -X PATCH -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" \
-              -d "{\"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}")
+              -d "{\"name\": \"Continuous Build (Nightly Version: $VERSION)\", \"prerelease\": true}")
             echo "Update response: $UPDATE_RESPONSE"
             if echo "$UPDATE_RESPONSE" | grep -q '"message":'; then
               echo "Error updating release: $UPDATE_RESPONSE"
@@ -656,7 +657,7 @@ jobs:
             CREATE_RESPONSE=$(curl -s -X POST -H "Authorization: token $CITRON_RELEASE_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases" \
-              -d "{\"tag_name\": \"nightly\", \"name\": \"Continuous Build (Nightly Version: $FULL_COMMIT)\", \"prerelease\": true}")
+              -d "{\"tag_name\": \"nightly\", \"name\": \"Continuous Build (Nightly Version: $VERSION)\", \"prerelease\": true}")
             echo "Create response: $CREATE_RESPONSE"
             if echo "$CREATE_RESPONSE" | grep -q '"message":'; then
               echo "Error creating release: $CREATE_RESPONSE"
