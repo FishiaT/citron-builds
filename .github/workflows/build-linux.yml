@@ -64,7 +64,7 @@ jobs:
           # Set architecture flags for optimized variant
           export ARCH="x86_64"
           echo "Building stable optimized variant."
-          ARCH_FLAGS="-march=x86-64-v3 -Ofast -flto=auto -fira-hoist-pressure -fschedule-fusion -ftracer -falign-functions=64 -falign-loops=64 -mprefer-vector-width=256 -minline-all-stringops"
+          ARCH_FLAGS="-march=x86-64-v3 -Ofast -flto=auto -fira-hoist-pressure -ftracer -mprefer-vector-width=256 -minline-all-stringops"
 
           # Clone stable repository
           echo "Cloning stable version from https://git.citron-emu.org/Citron/Citron"
@@ -396,7 +396,7 @@ jobs:
           # Set architecture flags for optimized variant
           export ARCH="x86_64"
           echo "Building nightly optimized variant."
-          ARCH_FLAGS="-march=x86-64-v3 -Ofast -flto=auto -fira-hoist-pressure -fschedule-fusion -ftracer -falign-functions=64 -falign-loops=64 -mprefer-vector-width=256 -minline-all-stringops"
+          ARCH_FLAGS="-march=x86-64-v3 -Ofast -flto=auto -fira-hoist-pressure -ftracer -mprefer-vector-width=256 -minline-all-stringops"
 
           # Clone nightly repository
           echo "Cloning nightly version from https://git.citron-emu.org/Citron/Citron"
