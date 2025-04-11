@@ -70,6 +70,42 @@ jobs:
             exit 1
           }
 
+      - name: Download Prebuilt FFmpeg
+        run: |
+          # Download FFmpeg prebuilt binaries
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
+          # Extract the binaries
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg"
+          # Move the binaries to a known location
+          Move-Item -Path "ffmpeg/ffmpeg-master-latest-win64-gpl/*" -Destination "ffmpeg"
+          # Set environment variable for CMake to find FFmpeg
+          echo "FFMPEG_DIR=D:/a/citron-builds/citron-builds/ffmpeg" >> $GITHUB_ENV
+          # Add FFmpeg bin directory to PATH for runtime dependencies
+          echo "D:/a/citron-builds/citron-builds/ffmpeg/bin" >> $GITHUB_PATH
+
+      - name: Verify FFmpeg Installation
+        run: |
+          # List FFmpeg files to confirm the presence of required libraries
+          dir $env:FFMPEG_DIR/bin
+          dir $env:FFMPEG_DIR/lib
+          # Check for specific libraries
+          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/avcodec.lib")) {
+            Write-Error "avcodec.lib not found!"
+            exit 1
+          }
+          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/avformat.lib")) {
+            Write-Error "avformat.lib not found!"
+            exit 1
+          }
+          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/swresample.lib")) {
+            Write-Error "swresample.lib not found!"
+            exit 1
+          }
+          if (-Not (Test-Path "$env:FFMPEG_DIR/lib/swscale.lib")) {
+            Write-Error "swscale.lib not found!"
+            exit 1
+          }
+
       - name: Set up VCPKG
         run: |
           # Clone VCPKG
@@ -83,16 +119,19 @@ jobs:
           echo "VCPKG_ROOT=$PWD" >> $GITHUB_ENV
           cd ..
 
+      - name: Restore VCPKG Binary Cache
+        uses: actions/cache@v3
+        with:
+          path: D:/a/citron-builds/citron-builds/vcpkg/installed
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-binary-cache-${{ runner.os }}-
+
       - name: Install dependencies with VCPKG
         run: |
           cd vcpkg
-          # Install required dependencies
-          .\vcpkg install boost:x64-windows
-          .\vcpkg install ffmpeg:x64-windows
-          .\vcpkg install libusb:x64-windows
-          .\vcpkg install opus:x64-windows
-          .\vcpkg install zlib:x64-windows
-          .\vcpkg install zstd:x64-windows
+          # Install required dependencies (excluding FFmpeg)
+          .\vcpkg install boost:x64-windows libusb:x64-windows opus:x64-windows zlib:x64-windows zstd:x64-windows
           cd ..
 
       - name: Build Citron for Windows
@@ -111,13 +150,14 @@ jobs:
           mkdir build
           cd build
           
-          # Configure CMake with optimizations
+          # Configure CMake with optimizations and prebuilt FFmpeg
           cmake .. -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DUSE_DISCORD_PRESENCE=OFF `
             -DENABLE_QT=ON `
             -DQT6_DIR="$env:QT6_DIR" `
+            -DFFMPEG_DIR="$env:FFMPEG_DIR" `
             -DCMAKE_CXX_FLAGS="/O2 /GL /arch:AVX2" `
             -DCMAKE_C_FLAGS="/O2 /GL /arch:AVX2" `
             -DCMAKE_BUILD_TYPE=Release
@@ -142,10 +182,19 @@ jobs:
           # Copy the executable
           Copy-Item ../citron/build/bin/Release/citron.exe .
           
-          # Copy Qt DLLs and other dependencies
+          # Copy Qt DLLs
           Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Core.dll" .
           Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Gui.dll" .
           Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Widgets.dll" .
+          
+          # Copy FFmpeg DLLs (required at runtime)
+          Copy-Item "$env:FFMPEG_DIR/bin/avcodec-*.dll" .
+          Copy-Item "$env:FFMPEG_DIR/bin/avdevice-*.dll" .
+          Copy-Item "$env:FFMPEG_DIR/bin/avfilter-*.dll" .
+          Copy-Item "$env:FFMPEG_DIR/bin/avformat-*.dll" .
+          Copy-Item "$env:FFMPEG_DIR/bin/avutil-*.dll" .
+          Copy-Item "$env:FFMPEG_DIR/bin/swresample-*.dll" .
+          Copy-Item "$env:FFMPEG_DIR/bin/swscale-*.dll" .
           
           # Create a zip file
           Compress-Archive -Path * -DestinationPath ../Citron-$FULL_COMMIT-windows-optimized.zip
