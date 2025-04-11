@@ -16,19 +16,27 @@ jobs:
         with:
           fetch-depth: 0  # Ensures all files, including citron.dwfsprof, are available
 
+      - name: Verify citron.dwfsprof presence
+        run: |
+          if [ ! -f citron.dwfsprof ]; then
+            echo "Error: citron.dwfsprof not found in repository root"
+            exit 1
+          fi
+          echo "citron.dwfsprof found, proceeding with build"
+
       - name: Install dependencies
         run: |
-          # Modify pacman.conf as per get-dependencies.sh
+          # Modify pacman.conf
           sed -i 's/DownloadUser/#DownloadUser/g' /etc/pacman.conf
           
-          # Determine package type based on architecture
+          # Determine package type
           if [ "$(uname -m)" = "x86_64" ]; then
             PKG_TYPE="x86_64.pkg.tar.zst"
           else
             PKG_TYPE="aarch64.pkg.tar.xz"
           fi
           
-          # Define URLs for custom packages
+          # URLs for custom packages
           LLVM_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/llvm-libs-nano-$PKG_TYPE"
           FFMPEG_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/ffmpeg-mini-$PKG_TYPE"
           QT6_URL="https://github.com/pkgforge-dev/llvm-libs-debloated/releases/download/continuous/qt6-base-iculess-$PKG_TYPE"
@@ -36,78 +44,24 @@ jobs:
           
           # Install system packages
           pacman -Syu --noconfirm \
-            aom \
-            base-devel \
-            boost \
-            boost-libs \
-            catch2 \
-            clang \
-            cmake \
-            curl \
-            dav1d \
-            desktop-file-utils \
-            doxygen \
-            enet \
-            ffmpeg \
-            ffmpeg4.4 \
-            fmt \
-            gamemode \
-            git \
-            glslang \
-            glu \
-            hidapi \
-            libass \
-            libdecor \
-            libfdk-aac \
-            libopusenc \
-            libva \
-            libvpx \
-            libxi \
-            libxkbcommon-x11 \
-            libxss \
-            libzip \
-            mbedtls \
-            mbedtls2 \
-            mesa \
-            meson \
-            nasm \
-            ninja \
-            nlohmann-json \
-            numactl \
-            patchelf \
-            pipewire-audio \
-            pulseaudio \
-            pulseaudio-alsa \
-            python-pip \
-            qt6-base \
-            qt6ct \
-            qt6-multimedia \
-            qt6-tools \
-            qt6-wayland \
-            sdl2 \
-            strace \
-            unzip \
-            vulkan-headers \
-            vulkan-nouveau \
-            vulkan-radeon \
-            wget \
-            x264 \
-            x265 \
-            xcb-util-image \
-            xcb-util-renderutil \
-            xcb-util-wm \
-            xorg-server-xvfb \
-            zip \
-            zsync
+            aom base-devel boost boost-libs catch2 clang cmake curl dav1d \
+            desktop-file-utils doxygen enet ffmpeg ffmpeg4.4 fmt gamemode git \
+            glslang glu hidapi libass libdecor libfdk-aac libopusenc libva \
+            libvpx libxi libxkbcommon-x11 libxss libzip mbedtls mbedtls2 mesa \
+            meson nasm ninja nlohmann-json numactl patchelf pipewire-audio \
+            pulseaudio pulseaudio-alsa python-pip qt6-base qt6ct qt6-multimedia \
+            qt6-tools qt6-wayland sdl2 strace unzip vulkan-headers vulkan-nouveau \
+            vulkan-radeon wget x264 x265 xcb-util-image xcb-util-renderutil \
+            xcb-util-wm xorg-server-xvfb zip zsync
           
-          # Install architecture-specific packages
+          # Architecture-specific packages
           if [ "$(uname -m)" = "x86_64" ]; then
             pacman -Syu --noconfirm vulkan-intel haskell-gnutls gcc13 svt-av1
           else
             pacman -Syu --noconfirm vulkan-freedreno vulkan-panfrost
           fi
           
-          # Download and install custom packages
+          # Install custom packages
           wget --retry-connrefused --tries=30 "$LLVM_URL" -O ./llvm-libs.pkg.tar.zst
           wget --retry-connrefused --tries=30 "$FFMPEG_URL" -O ./ffmpeg-mini-$PKG_TYPE
           wget --retry-connrefused --tries=30 "$QT6_URL" -O ./qt6-base-iculess.pkg.tar.zst
@@ -118,12 +72,12 @@ jobs:
             ./ffmpeg-mini-$PKG_TYPE \
             ./llvm-libs.pkg.tar.zst
           
-          # Clean up downloaded packages
+          # Clean up
           rm -f ./qt6-base-iculess.pkg.tar.zst ./libxml2-iculess.pkg.tar.zst ./ffmpeg-mini-$PKG_TYPE ./llvm-libs.pkg.tar.zst
 
       - name: Build Citron
         run: |
-          # Set architecture and flags
+          # Set architecture flags
           export ARCH="$(uname -m)"
           if [ "$ARCH" = "x86_64" ]; then
             echo "Making x86-64 generic build of citron"
@@ -133,17 +87,17 @@ jobs:
             ARCH_FLAGS="-march=armv8-a -mtune=generic -O3"
           fi
           
-          # Clone Citron repository and checkout specific commit
+          # Clone Citron and checkout specific commit
           git clone https://git.citron-emu.org/Citron/Citron.git ./citron
           cd ./citron
           git checkout 19febba866d227cc16f8b3c814d6d5ae06c4d7a7
           VERSION=$(git rev-parse --short HEAD)
           git submodule update --init --recursive -j$(nproc)
           
-          # Update Boost ASIO compatibility
+          # Fix Boost ASIO
           find src -type f -name "*.cpp" -exec sed -i "s/boost::asio::io_service/boost::asio::io_context/g" {} \;
           
-          # Configure and build Citron
+          # Build Citron
           mkdir build && cd build
           cmake .. -GNinja \
             -DCITRON_USE_BUNDLED_VCPKG=OFF \
@@ -169,7 +123,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           ninja
-          ninja install  # Runs as root in container, no sudo needed
+          ninja install
           cd ../..
           echo "$VERSION" > version.txt
 
@@ -188,12 +142,21 @@ jobs:
           ln -s ./citron.svg ./.DirIcon
           sed -i "s|Name=citron|Name=citron nightly|" ./citron.desktop
           
-          # Define update information
+          # Define update info
           UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|nightly|*$ARCH.AppImage.zsync"
           
-          # Bundle libraries using lib4bin
+          # Download lib4bin
           wget --retry-connrefused --tries=30 "https://raw.githubusercontent.com/VHSgunzo/sharun/refs/heads/main/lib4bin" -O ./lib4bin
           chmod +x ./lib4bin
+          
+          # Create a script for lib4bin to ensure proper formatting and add debugging
+          cat << 'EOF' > bundle-libs.sh
+          #!/bin/bash
+          set -e
+          echo "Listing ALSA libraries before bundling:"
+          ls -l /usr/lib/alsa-lib/ || echo "ALSA directory not found"
+          
+          # Run lib4bin with verbose output
           xvfb-run -a -- ./lib4bin -p -v -e -s -k \
             /usr/bin/citron* \
             /usr/lib/libGLX* \
@@ -220,6 +183,54 @@ jobs:
             /usr/lib/spa-0.2/*/* \
             /usr/lib/alsa-lib/*
           
-          # Configure sharun for AppRun
+          # Check for temporary scripts in /__w/_temp/
+          echo "Listing temporary scripts after lib4bin:"
+          ls -l /__w/_temp/ || echo "No temporary scripts found"
+          if [ -d /__w/_temp ]; then
+            for script in /__w/_temp/*.sh; do
+              if [ -f "$script" ]; then
+                echo "Contents of $script:"
+                cat "$script"
+              fi
+            done
+          fi
+          EOF
+          
+          # Make the script executable and run it
+          chmod +x bundle-libs.sh
+          echo "Running bundle-libs.sh..."
+          ./bundle-libs.sh || {
+            echo "lib4bin failed. Checking for temporary scripts..."
+            ls -l /__w/_temp/ || echo "No temporary scripts found"
+            exit 1
+          }
+          
+          # Configure AppRun
           if [ "$ARCH" = "aarch64" ]; then
             echo "SHARUN_ALLOW_SYS_VKICD=1" > ./.env
+          fi
+          ln ./sharun ./AppRun
+          ./sharun -g
+          
+          # Create AppImage
+          cd ..
+          cp citron.dwfsprof ./
+          wget -q "https://github.com/VHSgunzo/uruntime/releases/latest/download/uruntime-appimage-dwarfs-$ARCH" -O ./uruntime
+          chmod +x ./uruntime
+          ./uruntime --appimage-addupdinfo "$UPINFO"
+          ./uruntime --appimage-mkdwarfs -f \
+            --set-owner 0 --set-group 0 \
+            --no-history --no-create-timestamp \
+            --categorize=hotness --hotness-list=citron.dwfsprof \
+            --compression zstd:level=22 -S26 -B32 \
+            --header uruntime \
+            -i ./AppDir -o Citron-"$VERSION"-anylinux-"$ARCH".AppImage
+          
+          # Generate zsync
+          zsyncmake *.AppImage -u *.AppImage
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: Citron-AppImage
+          path: Citron-*.AppImage
