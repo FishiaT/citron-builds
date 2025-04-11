@@ -67,15 +67,18 @@ jobs:
           ARCH_FLAGS="-march=x86-64-v3 -mtune=generic -O3"
           
           # Clone stable repository
-          # Note: Using https://git.citron-emu.org/Citron/Citron.git as the clone URL, checking out tag v0.6.1-canary-refresh
           echo "Cloning stable version from https://git.citron-emu.org/Citron/Citron"
           git clone https://git.citron-emu.org/Citron/Citron.git ./citron
           cd ./citron
-          echo "Checking out tag v0.6.1-canary-refresh"
-          git checkout v0.6.1-canary-refresh
+          echo "Checking out commit 51800e249bc44bd13b528220a8e064c3744c05d1"
+          git checkout 51800e249bc44bd13b528220a8e064c3744c05d1
           VERSION="0.6.1"
           
-          git submodule update --init --recursive -j$(nproc)
+          # Initialize submodules, allowing private ones to fail
+          echo "Initializing submodules, skipping private repositories if necessary..."
+          git submodule update --init --recursive -j$(nproc) || {
+            echo "Some submodules failed to clone (likely private). Proceeding with available submodules."
+          }
           
           # Debug: Check directory structure
           echo "Listing contents of citron directory:"
@@ -127,6 +130,7 @@ jobs:
         run: |
           VERSION=$(cat version.txt)
           ARCH="x86_64"
+          ARCH_NAME="optimized"
           
           # Set up AppDir
           mkdir ./AppDir
@@ -137,7 +141,7 @@ jobs:
           sed -i "s|Name=citron|Name=citron stable|" ./citron.desktop
           
           # Define update info
-          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|stable-optimized|*$ARCH.AppImage.zsync"
+          UPINFO="gh-releases-zsync|$(echo "$GITHUB_REPOSITORY" | tr '/' '|')|stable-optimized|*$ARCH_NAME.AppImage.zsync"
           
           # Download lib4bin
           wget --retry-connrefused --tries=30 "https://raw.githubusercontent.com/VHSgunzo/sharun/refs/heads/main/lib4bin" -O ./lib4bin
@@ -203,7 +207,7 @@ jobs:
           ln ./sharun ./AppRun
           ./sharun -g
           
-          # Create AppImage with variant-specific naming
+          # Create AppImage
           cd ..
           wget -q "https://github.com/VHSgunzo/uruntime/releases/latest/download/uruntime-appimage-dwarfs-$ARCH" -O ./uruntime
           chmod +x ./uruntime
@@ -214,7 +218,7 @@ jobs:
             --categorize=hotness --hotness-list=citron.dwfsprof \
             --compression zstd:level=22 -S26 -B32 \
             --header uruntime \
-            -i ./AppDir -o Citron-Linux-Canary-Refresh_"$VERSION"_optimized.AppImage
+            -i ./AppDir -o Citron-"$VERSION"-anylinux-"$ARCH_NAME".AppImage
           
           # Generate zsync
           zsyncmake *.AppImage -u *.AppImage
@@ -224,16 +228,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(cat version.txt)
+          RELEASE_TAG="v0.6.1"  # Explicitly define the release tag with 'v'
           
-          # Check if the v0.6.1 release exists in zqpvr/citron-builds
+          # Check if the release exists in zqpvr/citron-builds
           RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/v0.6.1")
+            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/$RELEASE_TAG")
           
           # Extract release ID if it exists
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
           
           if [ -n "$RELEASE_ID" ]; then
-            echo "Stable release v0.6.1 exists, deleting old assets..."
+            echo "Stable release $RELEASE_TAG exists, deleting old assets..."
             # Get list of assets
             ASSETS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets")
@@ -251,16 +256,16 @@ jobs:
               "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" \
               -d "{\"name\": \"Stable Build (Version: $VERSION)\", \"prerelease\": false}"
           else
-            echo "Creating new stable release v0.6.1..."
+            echo "Creating new stable release $RELEASE_TAG..."
             curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/zqpvr/citron-builds/releases" \
-              -d "{\"tag_name\": \"v0.6.1\", \"name\": \"Stable Build (Version: $VERSION)\", \"prerelease\": false}"
+              -d "{\"tag_name\": \"$RELEASE_TAG\", \"name\": \"Stable Build (Version: $VERSION)\", \"prerelease\": false}"
           fi
           
           # Get the updated release ID
           RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/v0.6.1")
+            "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/$RELEASE_TAG")
           RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep '"id":' | head -1 | sed -E 's/.*"id": ([0-9]+),.*/\1/')
           
           # Upload new assets
@@ -341,6 +346,8 @@ jobs:
           VERSION=$(git rev-parse --short HEAD)
           FULL_COMMIT="19febba866d227cc16f8b3c814d6d5ae06c4d7a7"
           
+          # Initialize submodules (fail if any cannot be cloned)
+          echo "Initializing submodules..."
           git submodule update --init --recursive -j$(nproc)
           
           # Debug: Check directory structure
@@ -395,7 +402,7 @@ jobs:
           VERSION=$(cat version.txt)
           FULL_COMMIT=$(cat full_commit.txt)
           ARCH="x86_64"
-          ARCH_NAME="x86_64_v3"  # Since this is the optimized variant
+          ARCH_NAME="optimized"
           
           # Set up AppDir
           mkdir ./AppDir
@@ -472,7 +479,7 @@ jobs:
           ln ./sharun ./AppRun
           ./sharun -g
           
-          # Create AppImage with nightly naming
+          # Create AppImage
           cd ..
           wget -q "https://github.com/VHSgunzo/uruntime/releases/latest/download/uruntime-appimage-dwarfs-$ARCH" -O ./uruntime
           chmod +x ./uruntime
