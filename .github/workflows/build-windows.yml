@@ -5,356 +5,455 @@ on:
     branches:
       - main
 
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  VCPKG_DEFAULT_TRIPLET: x64-windows-static # Static linking for easier distribution
+
 jobs:
-  build-windows:
+  build-stable:
+    name: Build Stable (Windows x64)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensures all files are available
+          fetch-depth: 0 # Needed for version calculation if based on tags/history
 
-      - name: Set up Visual Studio 2022
-        uses: microsoft/setup-msbuild@v2
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
         with:
-          vs-version: '17.0'  # Visual Studio 2022
-          vs-where: '%ProgramFiles(x86)%\Microsoft Visual Studio\2022\Enterprise'
+          vcpkgDirectory: ${{ env.VCPKG_ROOT }}
+          vcpkgGitCommitId: '16417a82044a3c48e5ec8371a09220705874d789' # Pin vcpkg version for consistency
 
-      - name: Install CMake
-        uses: lukka/get-cmake@latest
+      - name: Install Dependencies (vcpkg)
+        shell: pwsh
+        run: |
+          # List derived from Linux dependencies, adjust if needed based on Citron's vcpkg.json or docs
+          $packages = @(
+            "boost-asio", "boost-atomic", "boost-container", "boost-context", "boost-filesystem",
+            "boost-locale", "boost-program-options", "boost-system", "boost-thread",
+            "catch2", "enet", "fmt", "glslang",
+            "libzip", "mbedtls", "nlohmann-json", "qt6-base", "qt6-multimedia", "qt6-tools",
+            "sdl2[core,gamecontroller]", # Request specific SDL2 features if needed
+            "ffmpeg[ffmpeg,fdk-aac,opus,x264,x265,aom,dav1d,av1,libvpx]", # Include required ffmpeg components
+            "libopusenc", "libvpx", "spdlog", "xxhash"
+            # Add any other specific dependencies here
+          )
+          # Install dependencies using the static triplet
+          vcpkg install ($packages -join ' ') --triplet ${{ env.VCPKG_DEFAULT_TRIPLET }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          cmakeVersion: '3.28'  # Use a recent version
+          python-version: '3.10' # Or the version required by Citron build scripts
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Set up Ninja
+        uses: ninja-build/setup-ninja@v1
         with:
-          python-version: '3.11'
-          architecture: 'x64'
+          version: '1.11.1' # Use a specific version
 
-      - name: Install aqtinstall
+      - name: Clone Citron Source (Stable)
+        shell: pwsh
         run: |
-          # Verify Python version
-          python --version
-          # Install aqtinstall
-          pip install aqtinstall
-
-      - name: Debug Qt Architectures and Modules
-        run: |
-          # List available architectures for Qt 6.5.3
-          aqt list-qt windows desktop --arch 6.5.3
-          # List available modules for the correct architecture
-          aqt list-qt windows desktop --modules 6.5.3 win64_msvc2019_64 || echo "Failed to list modules, check the error above."
-
-      - name: Install Qt via aqtinstall
-        run: |
-          # Use aqtinstall to download and install Qt 6.5.3 for MSVC 2019 64-bit
-          aqt install-qt --outputdir C:/Qt windows desktop 6.5.3 win64_msvc2019_64
-          # Set Qt environment variable
-          echo "QT6_DIR=C:/Qt/6.5.3/msvc2019_64/lib/cmake/Qt6" >> $GITHUB_ENV
-
-      - name: Verify Qt Installation
-        run: |
-          # List installed Qt files to confirm the presence of required DLLs
-          dir C:/Qt/6.5.3/msvc2019_64/bin
-          # Check for specific DLLs
-          if (-Not (Test-Path "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Core.dll")) {
-            Write-Error "Qt6Core.dll not found!"
-            exit 1
-          }
-          if (-Not (Test-Path "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Gui.dll")) {
-            Write-Error "Qt6Gui.dll not found!"
-            exit 1
-          }
-          if (-Not (Test-Path "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Widgets.dll")) {
-            Write-Error "Qt6Widgets.dll not found!"
-            exit 1
-          }
-
-      - name: Download Prebuilt FFmpeg
-        run: |
-          # Debug: Show current working directory
-          Write-Output "Current working directory: $PWD"
-          
-          # Download FFmpeg prebuilt binaries (use win64-gpl-shared for libraries)
-          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip" -OutFile "ffmpeg.zip"
-          
-          # Debug: Confirm the zip file was downloaded
-          if (-Not (Test-Path "ffmpeg.zip")) {
-            Write-Error "ffmpeg.zip not found after download!"
-            exit 1
-          }
-          Write-Output "ffmpeg.zip downloaded successfully."
-          
-          # Extract the binaries
-          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg"
-          
-          # Debug: List contents after extraction
-          Write-Output "Contents of ffmpeg directory after extraction:"
-          dir "ffmpeg"
-          
-          # Move the files (flatten the directory structure)
-          Move-Item -Path "ffmpeg/ffmpeg-master-latest-win64-gpl-shared/*" -Destination "ffmpeg"
-          
-          # Debug: List contents after moving
-          Write-Output "Contents of ffmpeg directory after moving:"
-          dir "ffmpeg"
-          
-          # Debug: Confirm the bin and lib directories exist
-          if (-Not (Test-Path "ffmpeg/bin")) {
-            Write-Error "ffmpeg/bin directory not found after extraction and move!"
-            exit 1
-          }
-          if (-Not (Test-Path "ffmpeg/lib")) {
-            Write-Error "ffmpeg/lib directory not found after extraction and move!"
-            exit 1
-          }
-          Write-Output "ffmpeg/bin and ffmpeg/lib directories exist."
-          
-          # Set environment variable for CMake to find FFmpeg
-          $FFMPEG_PATH = "D:\a\citron-builds\citron-builds\ffmpeg"
-          echo "FFMPEG_DIR=$FFMPEG_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          
-          # Debug: Show the contents of $GITHUB_ENV
-          Write-Output "Contents of `$GITHUB_ENV after setting FFMPEG_DIR:"
-          Get-Content $env:GITHUB_ENV
-          
-          # Add FFmpeg bin directory to PATH for runtime dependencies
-          echo "$FFMPEG_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-
-      - name: Verify FFmpeg Installation
-        run: |
-          # Debug: Print the FFMPEG_DIR variable
-          Write-Output "FFMPEG_DIR in Verify step: $env:FFMPEG_DIR"
-          
-          # Check if FFMPEG_DIR is set
-          if (-Not $env:FFMPEG_DIR) {
-            Write-Error "FFMPEG_DIR environment variable is not set!"
-            exit 1
-          }
-          
-          # List FFmpeg bin and lib contents
-          Write-Output "Listing contents of $env:FFMPEG_DIR\bin:"
-          dir "$env:FFMPEG_DIR\bin" -ErrorAction Stop
-          
-          Write-Output "Listing contents of $env:FFMPEG_DIR\lib:"
-          dir "$env:FFMPEG_DIR\lib" -ErrorAction Stop
-          
-          # Check for specific libraries
-          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\avcodec.lib")) {
-            Write-Error "avcodec.lib not found!"
-            exit 1
-          }
-          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\avformat.lib")) {
-            Write-Error "avformat.lib not found!"
-            exit 1
-          }
-          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\swresample.lib")) {
-            Write-Error "swresample.lib not found!"
-            exit 1
-          }
-          if (-Not (Test-Path "$env:FFMPEG_DIR\lib\swscale.lib")) {
-            Write-Error "swscale.lib not found!"
-            exit 1
-          }
-          Write-Output "All required FFmpeg libraries found."
-
-      - name: Set up VCPKG
-        run: |
-          # Clone VCPKG at a specific commit for reproducibility
-          git clone https://github.com/microsoft/vcpkg.git
-          cd vcpkg
-          git checkout 2025.02.14
-          # Bootstrap VCPKG
-          .\bootstrap-vcpkg.bat
-          # Integrate VCPKG with Visual Studio
-          .\vcpkg integrate install
-          # Set VCPKG_ROOT environment variable
-          echo "VCPKG_ROOT=$PWD" >> $GITHUB_ENV
-          cd ..
-
-      - name: Restore VCPKG Binary Cache
-        uses: actions/cache@v4
-        with:
-          path: vcpkg/installed
-          key: vcpkg-binary-cache-${{ runner.os }}-2025.02.14-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-binary-cache-${{ runner.os }}-2025.02.14-
-            vcpkg-binary-cache-${{ runner.os }}-
-
-      - name: Install dependencies with VCPKG
-        run: |
-          cd vcpkg
-          # Install dependencies with retries for transient failures
-          $attempt = 1
-          $maxAttempts = 3
-          while ($attempt -le $maxAttempts) {
-            Write-Output "Attempt $attempt of $maxAttempts to install VCPKG dependencies..."
-            try {
-              .\vcpkg install boost:x64-windows libusb:x64-windows opus:x64-windows zlib:x64-windows zstd:x64-windows --recurse
-              Write-Output "VCPKG dependencies installed successfully."
-              break
-            } catch {
-              Write-Output "Attempt $attempt failed: $_"
-              if ($attempt -eq $maxAttempts) {
-                Write-Error "Failed to install VCPKG dependencies after $maxAttempts attempts."
-                exit 1
-              }
-              Start-Sleep -Seconds 5
-            }
-            $attempt++
-          }
-          cd ..
-
-      - name: Build Citron for Windows
-        run: |
-          # Clone the repository (same commit as nightly)
+          echo "Cloning stable version from https://git.citron-emu.org/Citron/Citron"
           git clone https://git.citron-emu.org/Citron/Citron.git ./citron
           cd ./citron
-          git checkout 19febba866d227cc16f8b3c814d6d5ae06c4d7a7
-          $FULL_COMMIT = $(git rev-parse HEAD)
-          $VERSION = $FULL_COMMIT
-          
+          $StableCommit = "51800e249bc44bd13b528220a8e064c3744c05d1" # Same commit as Linux stable
+          echo "Checking out commit $StableCommit"
+          git checkout $StableCommit
+          $Env:CITRON_VERSION="0.6.1" # Version associated with the commit
+          echo "$Env:CITRON_VERSION" | Out-File -Encoding UTF8 version.txt
+          echo "CITRON_VERSION=$Env:CITRON_VERSION" >> $env:GITHUB_ENV
+
+          # Update .gitmodules with new URLs (PowerShell equivalent of sed)
+          echo "Updating .gitmodules with new submodule URLs..."
+          (Get-Content .gitmodules) -replace 'url = https://git.citron-emu.org/Citron/breakpad.git', 'url = https://github.com/yuzu-mirror/breakpad' | Set-Content .gitmodules -Encoding UTF8
+          (Get-Content .gitmodules) -replace 'url = https://git.citron-emu.org/Citron/discord-rpc.git', 'url = https://github.com/yuzu-mirror/discord-rpc' | Set-Content .gitmodules -Encoding UTF8
+          (Get-Content .gitmodules) -replace 'url = https://git.citron-emu.org/Citron/dynarmic.git', 'url = https://github.com/yuzu-mirror/dynarmic' | Set-Content .gitmodules -Encoding UTF8
+          (Get-Content .gitmodules) -replace 'url = https://git.citron-emu.org/Citron/mbedtls.git', 'url = https://github.com/yuzu-mirror/mbedtls' | Set-Content .gitmodules -Encoding UTF8
+          (Get-Content .gitmodules) -replace 'url = https://git.citron-emu.org/Citron/oaknut.git', 'url = https://github.com/yuzu-mirror/oaknut' | Set-Content .gitmodules -Encoding UTF8
+          (Get-Content .gitmodules) -replace 'url = https://git.citron-emu.org/Citron/sirit.git', 'url = https://github.com/yuzu-mirror/sirit' | Set-Content .gitmodules -Encoding UTF8
+
+          echo "Updated .gitmodules contents:"
+          Get-Content .gitmodules
+
           # Initialize submodules
-          git submodule update --init --recursive
-          
-          # Create build directory
-          mkdir build
-          cd build
-          
-          # Configure CMake with optimizations and prebuilt FFmpeg
-          cmake .. -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
-            -DUSE_DISCORD_PRESENCE=OFF `
-            -DENABLE_QT=ON `
-            -DQT6_DIR="$env:QT6_DIR" `
-            -DFFMPEG_DIR="$env:FFMPEG_DIR" `
-            -DCMAKE_CXX_FLAGS="/O2 /GL /arch:AVX2" `
-            -DCMAKE_C_FLAGS="/O2 /GL /arch:AVX2" `
-            -DCMAKE_BUILD_TYPE=Release
-          
-          # Build
-          cmake --build . --config Release
-          
-          # Save version and commit info
-          cd ..
-          echo $VERSION | Out-File -FilePath version.txt
-          echo $FULL_COMMIT | Out-File -FilePath full_commit.txt
+          echo "Initializing submodules..."
+          git submodule update --init --recursive -j $(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
 
-      - name: Package Windows Build
+      - name: Apply Patches (if necessary)
+        shell: pwsh
         run: |
-          $VERSION = Get-Content -Path ./citron/version.txt
-          $FULL_COMMIT = Get-Content -Path ./citron/full_commit.txt
-          
-          # Create a directory for the package
-          mkdir Citron-Windows
-          cd Citron-Windows
-          
-          # Copy the executable
-          Copy-Item ../citron/build/bin/Release/citron.exe .
-          
-          # Copy Qt DLLs
-          Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Core.dll" .
-          Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Gui.dll" .
-          Copy-Item "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Widgets.dll" .
-          
-          # Copy FFmpeg DLLs (required at runtime)
-          Copy-Item "$env:FFMPEG_DIR/bin/avcodec-*.dll" .
-          Copy-Item "$env:FFMPEG_DIR/bin/avdevice-*.dll" .
-          Copy-Item "$env:FFMPEG_DIR/bin/avfilter-*.dll" .
-          Copy-Item "$env:FFMPEG_DIR/bin/avformat-*.dll" .
-          Copy-Item "$env:FFMPEG_DIR/bin/avutil-*.dll" .
-          Copy-Item "$env:FFMPEG_DIR/bin/swresample-*.dll" .
-          Copy-Item "$env:FFMPEG_DIR/bin/swscale-*.dll" .
-          
-          # Create a zip file
-          Compress-Archive -Path * -DestinationPath ../Citron-$FULL_COMMIT-windows-optimized.zip
-          cd ..
+          cd ./citron
+          # Check if Boost ASIO fix is needed for MSVC build and apply if necessary
+          # Example using PowerShell (adjust pattern if needed):
+          $CppFiles = Get-ChildItem -Path ./src -Recurse -Filter *.cpp
+          if ($CppFiles) {
+              echo "Applying Boost ASIO fix (if applicable)..."
+              foreach ($file in $CppFiles) {
+                  (Get-Content $file.FullName -Raw) -replace 'boost::asio::io_service', 'boost::asio::io_context' | Set-Content $file.FullName -Encoding UTF8 -NoNewline
+              }
+          } else {
+              echo "Skipping Boost ASIO fix: src directory not found or contains no .cpp files"
+          }
 
-      - name: Debug Token and Permissions (Windows)
+      - name: Build Citron Stable
+        shell: pwsh
+        run: |
+          cd ./citron
+          New-Item build -ItemType Directory | Out-Null
+          cd build
+
+          # Configure using CMake
+          cmake .. -G Ninja `
+            -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="./install_dir" `
+            -DCITRON_USE_BUNDLED_VCPKG=OFF `
+            -DCITRON_USE_BUNDLED_QT=OFF `
+            -DUSE_SYSTEM_QT=ON ` # Might not be needed if vcpkg handles it via toolchain
+            -DCITRON_USE_BUNDLED_FFMPEG=OFF `
+            -DCITRON_USE_BUNDLED_SDL2=OFF ` # Use vcpkg SDL2
+            -DCITRON_USE_EXTERNAL_SDL2=ON ` # Explicitly use external SDL2
+            -DCITRON_TESTS=OFF `
+            -DCITRON_CHECK_SUBMODULES=OFF `
+            -DCITRON_USE_LLVM_DEMANGLE=OFF ` # Adjust based on Windows needs/availability
+            -DCITRON_ENABLE_LTO=ON ` # Enable Link Time Optimization
+            -DCITRON_USE_QT_MULTIMEDIA=OFF ` # Mirroring Linux config
+            -DCITRON_USE_QT_WEB_ENGINE=OFF ` # Mirroring Linux config
+            -DENABLE_QT_TRANSLATION=ON `
+            -DUSE_DISCORD_PRESENCE=OFF ` # Mirroring Linux config
+            -DBUNDLE_SPEEX=ON ` # Mirroring Linux config
+            -DCITRON_USE_FASTER_LD=OFF # Linker flag specific to non-MSVC linkers
+
+          # Build using Ninja
+          ninja
+
+          # Install to install_dir
+          ninja install
+
+          cd ../.. # Back to workflow root
+
+      - name: Package Build (Stable)
+        shell: pwsh
+        run: |
+          $VERSION = Get-Content version.txt
+          $ARTIFACT_NAME = "Citron-Stable-${VERSION}-Windows-x64"
+          Compress-Archive -Path ./citron/build/install_dir/* -DestinationPath "${ARTIFACT_NAME}.zip" -Force
+          echo "ARCHIVE_NAME=${ARTIFACT_NAME}.zip" >> $env:GITHUB_ENV
+          echo "Created ${ARTIFACT_NAME}.zip"
+
+      - name: Debug Token and Permissions (Stable)
+        shell: pwsh
         env:
           CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
         run: |
-          # Check if CITRON_RELEASE_TOKEN is set
           if (-not $env:CITRON_RELEASE_TOKEN) {
-            Write-Error "CITRON_RELEASE_TOKEN is not set. Please add it to the repository secrets."
+            Write-Error "Error: CITRON_RELEASE_TOKEN is not set. Please add it to the repository secrets."
             exit 1
           } else {
-            Write-Output "CITRON_RELEASE_TOKEN is set (length: $($env:CITRON_RELEASE_TOKEN.Length) characters)."
+            Write-Host "CITRON_RELEASE_TOKEN is set (length: $($env:CITRON_RELEASE_TOKEN.Length) characters)."
           }
-          
-          # Test the token by fetching user info
-          Write-Output "Testing CITRON_RELEASE_TOKEN by fetching user info..."
-          $USER_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/user" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-          Write-Output "User response: $USER_RESPONSE"
-          
-          # Check if the token has access to zqpvr/citron-builds
-          Write-Output "Checking access to zqpvr/citron-builds..."
-          $REPO_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-          Write-Output "Repo response: $REPO_RESPONSE"
-          
-          # Check for specific permissions
-          $USERNAME = $USER_RESPONSE.login
-          Write-Output "Checking permissions for user $USERNAME..."
-          $PERMS_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/collaborators/$USERNAME/permission" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Accept" = "application/vnd.github.v3+json" }
-          Write-Output "Permissions response: $PERMS_RESPONSE"
 
-      - name: Create or Update Windows Nightly Release
+          $headers = @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" }
+
+          Write-Host "Testing CITRON_RELEASE_TOKEN by fetching user info..."
+          $userResponse = Invoke-RestMethod -Uri "https://api.github.com/user" -Headers $headers -SkipHttpErrorCheck
+          Write-Host "User response:"
+          $userResponse | ConvertTo-Json -Depth 3 | Write-Host
+
+          Write-Host "Checking access to zqpvr/citron-builds..."
+          $repoResponse = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds" -Headers $headers -SkipHttpErrorCheck
+          Write-Host "Repo response:"
+          $repoResponse | ConvertTo-Json -Depth 3 | Write-Host
+
+          # Check permissions (Requires 'repo' scope on the token)
+          $userName = $userResponse.login
+          if ($userName) {
+            Write-Host "Checking permissions for user $userName on zqpvr/citron-builds..."
+            $permsUri = "https://api.github.com/repos/zqpvr/citron-builds/collaborators/$userName/permission"
+            $permsResponse = Invoke-RestMethod -Uri $permsUri -Headers $headers -SkipHttpErrorCheck
+            Write-Host "Permissions response:"
+            $permsResponse | ConvertTo-Json -Depth 3 | Write-Host
+          } else {
+            Write-Warning "Could not determine username from token to check permissions."
+          }
+
+      - name: Create or Update Stable Release
+        shell: pwsh
+        env:
+          CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
+          RELEASE_TAG: "v0.6.1" # Match the stable tag
+          VERSION: ${{ env.CITRON_VERSION }}
+        run: |
+          $headers = @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" }
+          $repoUrl = "https://api.github.com/repos/zqpvr/citron-builds"
+
+          Write-Host "Checking if release $env:RELEASE_TAG exists..."
+          $releaseUri = "$repoUrl/releases/tags/$($env:RELEASE_TAG)"
+          $releaseResponse = Invoke-RestMethod -Uri $releaseUri -Headers $headers -SkipHttpErrorCheck -ErrorAction SilentlyContinue
+          $releaseId = $releaseResponse.id
+
+          if ($releaseId) {
+            Write-Host "Stable release $env:RELEASE_TAG exists (ID: $releaseId), deleting old assets..."
+            $assetsUri = "$repoUrl/releases/$releaseId/assets"
+            $assets = Invoke-RestMethod -Uri $assetsUri -Headers $headers
+            foreach ($asset in $assets) {
+              if ($asset.name -like "Citron-Stable-*-Windows-x64.zip") {
+                Write-Host "Deleting asset $($asset.name) (ID: $($asset.id))..."
+                Invoke-RestMethod -Uri "$repoUrl/releases/assets/$($asset.id)" -Method Delete -Headers $headers
+              } else {
+                 Write-Host "Skipping asset $($asset.name) (does not match pattern)"
+              }
+            }
+
+            Write-Host "Updating existing release description..."
+            $updateBody = @{
+              name = "Stable Build (Version: $($env:VERSION))"
+              prerelease = $false
+            } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$repoUrl/releases/$releaseId" -Method Patch -Headers $headers -ContentType "application/json" -Body $updateBody
+
+          } else {
+            Write-Host "Creating new stable release $env:RELEASE_TAG..."
+            $createBody = @{
+              tag_name = $env:RELEASE_TAG
+              name = "Stable Build (Version: $($env:VERSION))"
+              prerelease = $false
+            } | ConvertTo-Json
+            $createResponse = Invoke-RestMethod -Uri "$repoUrl/releases" -Method Post -Headers $headers -ContentType "application/json" -Body $createBody
+            if ($createResponse.message) {
+                Write-Error "Error creating release: $($createResponse | ConvertTo-Json -Depth 3)"
+                exit 1
+            }
+            $releaseId = $createResponse.id
+          }
+
+          Write-Host "Uploading asset ${{ env.ARCHIVE_NAME }} to release ID $releaseId..."
+          $uploadUrl = "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$releaseId/assets?name=$($env:ARCHIVE_NAME)"
+          $uploadHeaders = @{
+            Authorization = "token $env:CITRON_RELEASE_TOKEN"
+            "Content-Type" = "application/zip"
+          }
+          $uploadResponse = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $uploadHeaders -InFile $env:ARCHIVE_NAME -SkipHttpErrorCheck
+          Write-Host "Upload response:"
+          $uploadResponse | ConvertTo-Json -Depth 3 | Write-Host
+          if ($uploadResponse.message) {
+            Write-Error "Error uploading asset: $($uploadResponse | ConvertTo-Json -Depth 3)"
+            exit 1
+          }
+
+  build-nightly:
+    name: Build Nightly (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed for commit hash
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: ${{ env.VCPKG_ROOT }}
+          vcpkgGitCommitId: '16417a82044a3c48e5ec8371a09220705874d789' # Pin vcpkg version
+
+      - name: Install Dependencies (vcpkg)
+        shell: pwsh
+        run: |
+          # Same dependencies as stable
+          $packages = @(
+            "boost-asio", "boost-atomic", "boost-container", "boost-context", "boost-filesystem",
+            "boost-locale", "boost-program-options", "boost-system", "boost-thread",
+            "catch2", "enet", "fmt", "glslang",
+            "libzip", "mbedtls", "nlohmann-json", "qt6-base", "qt6-multimedia", "qt6-tools",
+            "sdl2[core,gamecontroller]",
+            "ffmpeg[ffmpeg,fdk-aac,opus,x264,x265,aom,dav1d,av1,libvpx]",
+            "libopusenc", "libvpx", "spdlog", "xxhash"
+          )
+          vcpkg install ($packages -join ' ') --triplet ${{ env.VCPKG_DEFAULT_TRIPLET }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Set up Ninja
+        uses: ninja-build/setup-ninja@v1
+        with:
+          version: '1.11.1'
+
+      - name: Clone Citron Source (Nightly)
+        shell: pwsh
+        run: |
+          echo "Cloning nightly version from https://git.citron-emu.org/Citron/Citron"
+          git clone https://git.citron-emu.org/Citron/Citron.git ./citron
+          cd ./citron
+          $NightlyCommit = "19febba866d227cc16f8b3c814d6d5ae06c4d7a7" # Same commit as Linux nightly
+          echo "Checking out specific nightly commit $NightlyCommit"
+          git checkout $NightlyCommit
+
+          # Get version info from the commit
+          $Env:CITRON_VERSION = git rev-parse --short=10 HEAD
+          $Env:FULL_COMMIT = git rev-parse HEAD
+          echo "$Env:CITRON_VERSION" | Out-File -Encoding UTF8 version.txt
+          echo "$Env:FULL_COMMIT" | Out-File -Encoding UTF8 full_commit.txt
+          echo "CITRON_VERSION=$Env:CITRON_VERSION" >> $env:GITHUB_ENV
+          echo "FULL_COMMIT=$Env:FULL_COMMIT" >> $env:GITHUB_ENV
+
+          # No need to update .gitmodules for nightly if using the original repo URLs
+
+          # Initialize submodules
+          echo "Initializing submodules..."
+          git submodule update --init --recursive -j $(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
+
+      - name: Apply Patches (if necessary)
+        shell: pwsh
+        run: |
+          cd ./citron
+          # Check if Boost ASIO fix is needed for MSVC build and apply if necessary
+          $CppFiles = Get-ChildItem -Path ./src -Recurse -Filter *.cpp
+          if ($CppFiles) {
+              echo "Applying Boost ASIO fix (if applicable)..."
+              foreach ($file in $CppFiles) {
+                  (Get-Content $file.FullName -Raw) -replace 'boost::asio::io_service', 'boost::asio::io_context' | Set-Content $file.FullName -Encoding UTF8 -NoNewline
+              }
+          } else {
+              echo "Skipping Boost ASIO fix: src directory not found or contains no .cpp files"
+          }
+
+      - name: Build Citron Nightly
+        shell: pwsh
+        run: |
+          cd ./citron
+          New-Item build -ItemType Directory | Out-Null
+          cd build
+
+          # Configure using CMake (same flags as stable)
+          cmake .. -G Ninja `
+            -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="./install_dir" `
+            -DCITRON_USE_BUNDLED_VCPKG=OFF `
+            -DCITRON_USE_BUNDLED_QT=OFF `
+            -DUSE_SYSTEM_QT=ON `
+            -DCITRON_USE_BUNDLED_FFMPEG=OFF `
+            -DCITRON_USE_BUNDLED_SDL2=OFF `
+            -DCITRON_USE_EXTERNAL_SDL2=ON `
+            -DCITRON_TESTS=OFF `
+            -DCITRON_CHECK_SUBMODULES=OFF `
+            -DCITRON_USE_LLVM_DEMANGLE=OFF `
+            -DCITRON_ENABLE_LTO=ON `
+            -DCITRON_USE_QT_MULTIMEDIA=OFF `
+            -DCITRON_USE_QT_WEB_ENGINE=OFF `
+            -DENABLE_QT_TRANSLATION=ON `
+            -DUSE_DISCORD_PRESENCE=OFF `
+            -DBUNDLE_SPEEX=ON `
+            -DCITRON_USE_FASTER_LD=OFF
+
+          # Build using Ninja
+          ninja
+
+          # Install to install_dir
+          ninja install
+
+          cd ../.. # Back to workflow root
+
+      - name: Package Build (Nightly)
+        shell: pwsh
+        run: |
+          $VERSION = Get-Content version.txt
+          $ARTIFACT_NAME = "Citron-Nightly-${VERSION}-Windows-x64"
+          Compress-Archive -Path ./citron/build/install_dir/* -DestinationPath "${ARTIFACT_NAME}.zip" -Force
+          echo "ARCHIVE_NAME=${ARTIFACT_NAME}.zip" >> $env:GITHUB_ENV
+          echo "Created ${ARTIFACT_NAME}.zip"
+
+      - name: Debug Token and Permissions (Nightly)
+        # Re-running this for nightly doesn't hurt, ensures token is valid
+        shell: pwsh
         env:
           CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
         run: |
-          $FULL_COMMIT = Get-Content -Path ./citron/full_commit.txt
-          
-          # Check if the nightly release exists in zqpvr/citron-builds
-          Write-Output "Checking if windows-nightly release exists..."
-          try {
-            $RELEASE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/tags/windows-nightly" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-            Write-Output "Release response: $RELEASE_RESPONSE"
-            $RELEASE_ID = $RELEASE_RESPONSE.id
-          } catch {
-            Write-Output "Windows-nightly release does not exist, will create a new one."
-            $RELEASE_ID = $null
-          }
-          
-          if ($RELEASE_ID) {
-            Write-Output "Windows nightly release exists, deleting old assets..."
-            # Get list of assets
-            $ASSETS_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets" -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-            Write-Output "Assets response: $ASSETS_RESPONSE"
-            
-            # Delete each asset
-            foreach ($ASSET in $ASSETS_RESPONSE) {
-              $ASSET_ID = $ASSET.id
-              Write-Output "Deleting asset ID $ASSET_ID..."
-              Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/assets/$ASSET_ID" -Method Delete -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN" }
-              Write-Output "Asset $ASSET_ID deleted."
-            }
-            
-            Write-Output "Updating existing release..."
-            $UPDATE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID" -Method Patch -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body (@{ "name" = "Windows Continuous Build (Nightly Version: $FULL_COMMIT)"; "prerelease" = $true } | ConvertTo-Json)
-            Write-Output "Update response: $UPDATE_RESPONSE"
-            if ($UPDATE_RESPONSE.message) {
-              Write-Error "Error updating release: $UPDATE_RESPONSE.message"
-              exit 1
-            }
+          if (-not $env:CITRON_RELEASE_TOKEN) {
+            Write-Error "Error: CITRON_RELEASE_TOKEN is not set. Please add it to the repository secrets."
+            exit 1
           } else {
-            Write-Output "Creating new windows-nightly release..."
-            $CREATE_RESPONSE = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases" -Method Post -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body (@{ "tag_name" = "windows-nightly"; "name" = "Windows Continuous Build (Nightly Version: $FULL_COMMIT)"; "prerelease" = $true } | ConvertTo-Json)
-            Write-Output "Create response: $CREATE_RESPONSE"
-            if ($CREATE_RESPONSE.message) {
-              Write-Error "Error creating release: $CREATE_RESPONSE.message"
-              exit 1
-            }
-            $RELEASE_ID = $CREATE_RESPONSE.id
+            Write-Host "CITRON_RELEASE_TOKEN is set (length: $($env:CITRON_RELEASE_TOKEN.Length) characters)."
           }
-          
-          # Upload new assets
-          $ASSET_PATH = "Citron-$FULL_COMMIT-windows-optimized.zip"
-          Write-Output "Uploading $ASSET_PATH..."
-          $UPLOAD_URL = "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$RELEASE_ID/assets?name=$(Split-Path $ASSET_PATH -Leaf)"
-          $UPLOAD_RESPONSE = Invoke-RestMethod -Uri $UPLOAD_URL -Method Post -Headers @{ "Authorization" = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/octet-stream" } -InFile $ASSET_PATH
-          Write-Output "Upload response for $ASSET_PATH: $UPLOAD_RESPONSE"
-          if ($UPLOAD_RESPONSE.message) {
-            Write-Error "Error uploading $ASSET_PATH: $UPLOAD_RESPONSE.message"
+          # Simplified check - full check done in stable job
+          $headers = @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" }
+          $repoResponse = Invoke-RestMethod -Uri "https://api.github.com/repos/zqpvr/citron-builds" -Headers $headers -SkipHttpErrorCheck
+          if ($repoResponse.message) { Write-Warning "Could not access repo zqpvr/citron-builds. Check token permissions."} else { Write-Host "Token has access to zqpvr/citron-builds."}
+
+
+      - name: Create or Update Nightly Release
+        shell: pwsh
+        env:
+          CITRON_RELEASE_TOKEN: ${{ secrets.CITRON_RELEASE_TOKEN }}
+          RELEASE_TAG: "nightly" # Fixed tag for nightly
+          VERSION: ${{ env.CITRON_VERSION }}
+          FULL_COMMIT: ${{ env.FULL_COMMIT }}
+        run: |
+          $headers = @{ Authorization = "token $env:CITRON_RELEASE_TOKEN" }
+          $repoUrl = "https://api.github.com/repos/zqpvr/citron-builds"
+
+          Write-Host "Checking if release $env:RELEASE_TAG exists..."
+          $releaseUri = "$repoUrl/releases/tags/$($env:RELEASE_TAG)"
+          $releaseResponse = Invoke-RestMethod -Uri $releaseUri -Headers $headers -SkipHttpErrorCheck -ErrorAction SilentlyContinue
+          $releaseId = $releaseResponse.id
+
+          $releaseBody = "Continuous Build`nCommit: $($env:FULL_COMMIT)"
+          $releaseName = "Continuous Build (Nightly Version: $($env:VERSION))"
+
+          if ($releaseId) {
+            Write-Host "Nightly release $env:RELEASE_TAG exists (ID: $releaseId), deleting old assets..."
+            $assetsUri = "$repoUrl/releases/$releaseId/assets"
+            $assets = Invoke-RestMethod -Uri $assetsUri -Headers $headers
+            foreach ($asset in $assets) {
+               if ($asset.name -like "Citron-Nightly-*-Windows-x64.zip") {
+                  Write-Host "Deleting asset $($asset.name) (ID: $($asset.id))..."
+                  Invoke-RestMethod -Uri "$repoUrl/releases/assets/$($asset.id)" -Method Delete -Headers $headers
+               } else {
+                  Write-Host "Skipping asset $($asset.name) (does not match pattern)"
+               }
+            }
+
+            Write-Host "Updating existing release..."
+            $updateBody = @{
+              name = $releaseName
+              body = $releaseBody
+              prerelease = $true
+            } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$repoUrl/releases/$releaseId" -Method Patch -Headers $headers -ContentType "application/json" -Body $updateBody
+
+          } else {
+            Write-Host "Creating new nightly release $env:RELEASE_TAG..."
+            $createBody = @{
+              tag_name = $env:RELEASE_TAG
+              name = $releaseName
+              body = $releaseBody
+              prerelease = $true
+            } | ConvertTo-Json
+            $createResponse = Invoke-RestMethod -Uri "$repoUrl/releases" -Method Post -Headers $headers -ContentType "application/json" -Body $createBody
+            if ($createResponse.message) {
+                Write-Error "Error creating release: $($createResponse | ConvertTo-Json -Depth 3)"
+                exit 1
+            }
+            $releaseId = $createResponse.id
+          }
+
+          Write-Host "Uploading asset ${{ env.ARCHIVE_NAME }} to release ID $releaseId..."
+          $uploadUrl = "https://uploads.github.com/repos/zqpvr/citron-builds/releases/$releaseId/assets?name=$($env:ARCHIVE_NAME)"
+          $uploadHeaders = @{
+            Authorization = "token $env:CITRON_RELEASE_TOKEN"
+            "Content-Type" = "application/zip"
+          }
+          $uploadResponse = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $uploadHeaders -InFile $env:ARCHIVE_NAME -SkipHttpErrorCheck
+          Write-Host "Upload response:"
+          $uploadResponse | ConvertTo-Json -Depth 3 | Write-Host
+          if ($uploadResponse.message) {
+            Write-Error "Error uploading asset: $($uploadResponse | ConvertTo-Json -Depth 3)"
             exit 1
           }
