@@ -21,8 +21,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install CMake 3.4.3 (older version for compatibility)
-          choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          # Install CMake 3.4.3 (force downgrade)
+          choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' --force -y
 
           # Ensure Git PATH is set (Git is pre-installed)
           Write-Output "Configuring Git PATH..."
@@ -31,23 +31,18 @@ jobs:
           $env:PATH = "$env:PATH;C:\Program Files\Git\bin"
           Write-Output "Git PATH configured: $env:PATH"
 
-          # Install 7-Zip
-          choco install 7zip -y
-          Update-SessionEnvironment
-          Write-Output "7-Zip installed"
-
-          # Download and extract Vulkan SDK
+          # Download and install Vulkan SDK
           $VULKAN_VERSION = "1.4.309.0"
           $VULKAN_URL = "https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/windows/VulkanSDK-${VULKAN_VERSION}-Installer.exe"
           Invoke-WebRequest -Uri $VULKAN_URL -OutFile "VulkanSDK-Installer.exe"
-          # Extract with 7-Zip
-          7z x VulkanSDK-Installer.exe -oVulkanSDK
+          # Install silently
+          Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait
           # Set Vulkan SDK environment variables
-          $VULKAN_SDK_PATH = Resolve-Path "VulkanSDK"
+          $VULKAN_SDK_PATH = "C:\VulkanSDK\${VULKAN_VERSION}"
           $env:VULKAN_SDK = "$VULKAN_SDK_PATH"
           $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
           echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-          Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH. PATH: $env:PATH"
+          Write-Output "Vulkan SDK installed to $VULKAN_SDK_PATH. PATH: $env:PATH"
           # Verify glslangValidator exists
           $GLSLANG_PATH = "$VULKAN_SDK_PATH\Bin\glslangValidator.exe"
           if (Test-Path $GLSLANG_PATH) {
@@ -75,6 +70,9 @@ jobs:
           cd citron
           mkdir build
           cd build
+          # Ensure PATH includes Vulkan SDK Bin
+          $env:PATH = "$env:PATH;$env:VULKAN_SDK\Bin"
+          Write-Output "CMake PATH: $env:PATH"
           cmake .. -G "Visual Studio 17 2022" -A x64 `
             -DCITRON_USE_BUNDLED_VCPKG=ON `
             -DCITRON_TESTS=OFF `
@@ -169,8 +167,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install CMake 3.4.3 (older version for compatibility)
-          choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          # Install CMake 3.4.3 (force downgrade)
+          choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' --force -y
 
           # Ensure Git PATH is set (Git is pre-installed)
           Write-Output "Configuring Git PATH..."
@@ -179,23 +177,18 @@ jobs:
           $env:PATH = "$env:PATH;C:\Program Files\Git\bin"
           Write-Output "Git PATH configured: $env:PATH"
 
-          # Install 7-Zip
-          choco install 7zip -y
-          Update-SessionEnvironment
-          Write-Output "7-Zip installed"
-
-          # Download and extract Vulkan SDK
+          # Download and install Vulkan SDK
           $VULKAN_VERSION = "1.4.309.0"
           $VULKAN_URL = "https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/windows/VulkanSDK-${VULKAN_VERSION}-Installer.exe"
           Invoke-WebRequest -Uri $VULKAN_URL -OutFile "VulkanSDK-Installer.exe"
-          # Extract with 7-Zip
-          7z x VulkanSDK-Installer.exe -oVulkanSDK
+          # Install silently
+          Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait
           # Set Vulkan SDK environment variables
-          $VULKAN_SDK_PATH = Resolve-Path "VulkanSDK"
+          $VULKAN_SDK_PATH = "C:\VulkanSDK\${VULKAN_VERSION}"
           $env:VULKAN_SDK = "$VULKAN_SDK_PATH"
           $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
           echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-          Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH. PATH: $env:PATH"
+          Write-Output "Vulkan SDK installed to $VULKAN_SDK_PATH. PATH: $env:PATH"
           # Verify glslangValidator exists
           $GLSLANG_PATH = "$VULKAN_SDK_PATH\Bin\glslangValidator.exe"
           if (Test-Path $GLSLANG_PATH) {
@@ -223,6 +216,9 @@ jobs:
           cd citron
           mkdir build
           cd build
+          # Ensure PATH includes Vulkan SDK Bin
+          $env:PATH = "$env:PATH;$env:VULKAN_SDK\Bin"
+          Write-Output "CMake PATH: $env:PATH"
           cmake .. -G "Visual Studio 17 2022" -A x64 `
             -DCITRON_USE_BUNDLED_VCPKG=ON `
             -DCITRON_TESTS=OFF `
@@ -293,7 +289,7 @@ jobs:
           } else {
             Write-Output "Creating new nightly release..."
             $BODY = @{ tag_name = "$RELEASE_TAG"; name = "Continuous Build (Nightly Version: $env:VERSION)"; body = "Commit: $env:FULL_COMMIT"; prerelease = $true } | ConvertTo-Json
-            $RELEASE_RESPONSE = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases" -Headers @{ Authorization = "重要的是: "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body $BODY
+            $RELEASE_RESPONSE = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases" -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body $BODY
           }
           # Upload assets
           $ASSET_PATH = "citron/build/Citron-$env:VERSION-windows.zip"
