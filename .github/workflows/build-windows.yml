@@ -106,16 +106,19 @@ jobs:
           }
           Write-Output "ffmpeg/bin directory exists."
           
-          # Set environment variable for CMake to find FFmpeg (use backslashes for Windows)
-          $FFMPEG_PATH = "$PWD\ffmpeg" -replace '/', '\'
-          echo "FFMPEG_DIR=$FFMPEG_PATH" >> $GITHUB_ENV
+          # Set environment variable for CMake to find FFmpeg (hardcode the path for reliability)
+          $FFMPEG_PATH = "D:\a\citron-builds\citron-builds\ffmpeg"
+          echo "FFMPEG_DIR=$FFMPEG_PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           
           # Debug: Show the contents of $GITHUB_ENV to confirm the variable was set
           Write-Output "Contents of `$GITHUB_ENV after setting FFMPEG_DIR:"
           Get-Content $env:GITHUB_ENV
           
+          # Debug: Try to access FFMPEG_DIR in the same step (should be empty)
+          Write-Output "FFMPEG_DIR in same step (expected to be empty): $env:FFMPEG_DIR"
+          
           # Add FFmpeg bin directory to PATH for runtime dependencies
-          echo "$FFMPEG_PATH\bin" >> $GITHUB_PATH
+          echo "$FFMPEG_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Verify FFmpeg Installation
         run: |
