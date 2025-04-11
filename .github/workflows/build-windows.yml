@@ -48,6 +48,15 @@ jobs:
           $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
           echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
           Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH. PATH: $env:PATH"
+          # Verify glslangValidator exists
+          $GLSLANG_PATH = "$VULKAN_SDK_PATH\Bin\glslangValidator.exe"
+          if (Test-Path $GLSLANG_PATH) {
+            Write-Output "glslangValidator found at $GLSLANG_PATH"
+          } else {
+            Write-Output "Error: glslangValidator not found in $VULKAN_SDK_PATH\Bin"
+            dir $VULKAN_SDK_PATH -Recurse | Write-Output
+            exit 1
+          }
         shell: powershell
 
       - name: Clone Citron Stable
@@ -187,6 +196,15 @@ jobs:
           $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
           echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
           Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH. PATH: $env:PATH"
+          # Verify glslangValidator exists
+          $GLSLANG_PATH = "$VULKAN_SDK_PATH\Bin\glslangValidator.exe"
+          if (Test-Path $GLSLANG_PATH) {
+            Write-Output "glslangValidator found at $GLSLANG_PATH"
+          } else {
+            Write-Output "Error: glslangValidator not found in $VULKAN_SDK_PATH\Bin"
+            dir $VULKAN_SDK_PATH -Recurse | Write-Output
+            exit 1
+          }
         shell: powershell
 
       - name: Clone Citron Nightly
@@ -275,7 +293,7 @@ jobs:
           } else {
             Write-Output "Creating new nightly release..."
             $BODY = @{ tag_name = "$RELEASE_TAG"; name = "Continuous Build (Nightly Version: $env:VERSION)"; body = "Commit: $env:FULL_COMMIT"; prerelease = $true } | ConvertTo-Json
-            $RELEASE_RESPONSE = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases" -Headers @{ Authorization = "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body $BODY
+            $RELEASE_RESPONSE = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/zqpvr/citron-builds/releases" -Headers @{ Authorization = "重要的是: "token $env:CITRON_RELEASE_TOKEN"; "Content-Type" = "application/json" } -Body $BODY
           }
           # Upload assets
           $ASSET_PATH = "citron/build/Citron-$env:VERSION-windows.zip"
