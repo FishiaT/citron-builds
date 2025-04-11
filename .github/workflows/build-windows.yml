@@ -42,10 +42,8 @@ jobs:
         run: |
           # List available architectures for Qt 6.5.3
           aqt list-qt windows desktop --arch 6.5.3
-          # List available modules for the correct architecture (continue on error)
+          # List available modules for the correct architecture
           aqt list-qt windows desktop --modules 6.5.3 win64_msvc2019_64 || echo "Failed to list modules, check the error above."
-          # List all extensions to get more details (optional)
-          aqt list-qt windows desktop --extensions 6.5.3 win64_msvc2019_64 || echo "Failed to list extensions, check the error above."
 
       - name: Install Qt via aqtinstall
         run: |
@@ -53,6 +51,24 @@ jobs:
           aqt install-qt --outputdir C:/Qt windows desktop 6.5.3 win64_msvc2019_64
           # Set Qt environment variable
           echo "QT6_DIR=C:/Qt/6.5.3/msvc2019_64/lib/cmake/Qt6" >> $GITHUB_ENV
+
+      - name: Verify Qt Installation
+        run: |
+          # List installed Qt files to confirm the presence of required DLLs
+          dir C:/Qt/6.5.3/msvc2019_64/bin
+          # Check for specific DLLs
+          if (-Not (Test-Path "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Core.dll")) {
+            Write-Error "Qt6Core.dll not found!"
+            exit 1
+          }
+          if (-Not (Test-Path "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Gui.dll")) {
+            Write-Error "Qt6Gui.dll not found!"
+            exit 1
+          }
+          if (-Not (Test-Path "C:/Qt/6.5.3/msvc2019_64/bin/Qt6Widgets.dll")) {
+            Write-Error "Qt6Widgets.dll not found!"
+            exit 1
+          }
 
       - name: Set up VCPKG
         run: |
