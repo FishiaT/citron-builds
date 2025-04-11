@@ -25,11 +25,6 @@ jobs:
         with:
           cmakeVersion: '3.28'  # Use a recent version
 
-      - name: Install Git
-        uses: git-for-windows/git@latest
-        with:
-          version: 'latest'
-
       - name: Install Python and aqtinstall
         run: |
           # Install Python
