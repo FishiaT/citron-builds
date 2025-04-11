@@ -14,15 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensures all files, including citron.dwfsprof, are available
-
-      - name: Verify citron.dwfsprof presence
-        run: |
-          if [ ! -f citron.dwfsprof ]; then
-            echo "Error: citron.dwfsprof not found in repository root"
-            exit 1
-          fi
-          echo "citron.dwfsprof found, proceeding with build"
+          fetch-depth: 0  # Ensures all files are available
 
       - name: Install dependencies
         run: |
@@ -214,7 +206,6 @@ jobs:
           
           # Create AppImage
           cd ..
-          cp citron.dwfsprof ./
           wget -q "https://github.com/VHSgunzo/uruntime/releases/latest/download/uruntime-appimage-dwarfs-$ARCH" -O ./uruntime
           chmod +x ./uruntime
           ./uruntime --appimage-addupdinfo "$UPINFO"
