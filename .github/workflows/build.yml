@@ -74,11 +74,46 @@ jobs:
           git checkout 51800e249bc44bd13b528220a8e064c3744c05d1
           VERSION="0.6.1"
           
-          # Initialize submodules, allowing private ones to fail
-          echo "Initializing submodules, skipping private repositories if necessary..."
-          git submodule update --init --recursive -j$(nproc) || {
-            echo "Some submodules failed to clone (likely private). Proceeding with available submodules."
-          }
+          # Update .gitmodules with new URLs
+          echo "Updating .gitmodules with new submodule URLs..."
+          sed -i 's|url = https://git.citron-emu.org/Citron/breakpad.git|url = https://github.com/yuzu-mirror/breakpad|' .gitmodules
+          sed -i 's|url = https://github.com/yhirose/cpp-httplib.git|url = https://github.com/yhirose/cpp-httplib|' .gitmodules
+          sed -i 's|url = https://github.com/arun11299/cpp-jwt.git|url = https://github.com/arun11299/cpp-jwt|' .gitmodules
+          sed -i 's|url = https://github.com/mozilla/cubeb.git|url = https://github.com/mozilla/cubeb|' .gitmodules
+          sed -i 's|url = https://git.citron-emu.org/Citron/discord-rpc.git|url = https://github.com/yuzu-mirror/discord-rpc|' .gitmodules
+          sed -i 's|url = https://git.citron-emu.org/Citron/dynarmic.git|url = https://github.com/yuzu-mirror/dynarmic|' .gitmodules
+          sed -i 's|url = https://github.com/lsalzman/enet.git|url = https://github.com/lsalzman/enet|' .gitmodules
+          sed -i 's|url = https://github.com/bylaws/libadrenotools.git|url = https://github.com/bylaws/libadrenotools|' .gitmodules
+          sed -i 's|url = https://git.citron-emu.org/Citron/mbedtls.git|url = https://github.com/yuzu-mirror/mbedtls|' .gitmodules
+          sed -i 's|url = https://git.citron-emu.org/Citron/oaknut.git|url = https://github.com/yuzu-mirror/oaknut|' .gitmodules
+          sed -i 's|url = https://github.com/xiph/opus.git|url = https://github.com/xiph/opus|' .gitmodules
+          sed -i 's|url = https://github.com/libsdl-org/SDL.git|url = https://github.com/libsdl-org/SDL|' .gitmodules
+          sed -i 's|url = https://github.com/brofield/simpleini.git|url = https://github.com/brofield/simpleini|' .gitmodules
+          sed -i 's|url = https://git.citron-emu.org/Citron/sirit.git|url = https://github.com/yuzu-mirror/sirit|' .gitmodules
+          sed -i 's|url = https://github.com/microsoft/vcpkg.git|url = https://github.com/microsoft/vcpkg|' .gitmodules
+          sed -i 's|url = https://github.com/KhronosGroup/Vulkan-Headers.git|url = https://github.com/KhronosGroup/Vulkan-Headers|' .gitmodules
+          sed -i 's|url = https://github.com/KhronosGroup/Vulkan-Utility-Libraries.git|url = https://github.com/KhronosGroup/Vulkan-Utility-Libraries|' .gitmodules
+          sed -i 's|url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git|url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator|' .gitmodules
+          sed -i 's|url = https://github.com/herumi/xbyak.git|url = https://github.com/herumi/xbyak|' .gitmodules
+          
+          # Handle missing submodules (ffmpeg, libusb, nx_tzdb/tzdb_to_nx)
+          if grep -q "path = externals/ffmpeg/ffmpeg" .gitmodules; then
+            sed -i 's|url = https://github.com/FFmpeg/FFmpeg.git|url = https://github.com/FFmpeg/FFmpeg|' .gitmodules
+          fi
+          if grep -q "path = externals/libusb/libusb" .gitmodules; then
+            sed -i 's|url = https://github.com/libusb/libusb.git|url = https://github.com/libusb/libusb|' .gitmodules
+          fi
+          if grep -q "path = externals/nx_tzdb/tzdb_to_nx" .gitmodules; then
+            sed -i 's|url = https://github.com/lat9nq/tzdb_to_nx.git|url = https://github.com/lat9nq/tzdb_to_nx|' .gitmodules
+          fi
+          
+          # Debug: Display updated .gitmodules
+          echo "Updated .gitmodules contents:"
+          cat .gitmodules
+          
+          # Initialize submodules
+          echo "Initializing submodules..."
+          git submodule update --init --recursive -j$(nproc)
           
           # Debug: Check directory structure
           echo "Listing contents of citron directory:"
@@ -228,7 +263,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(cat version.txt)
-          RELEASE_TAG="v0.6.1"  # Explicitly define the release tag with 'v'
+          RELEASE_TAG="v0.6.1"
           
           # Check if the release exists in zqpvr/citron-builds
           RELEASE_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
