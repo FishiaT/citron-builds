@@ -72,22 +72,67 @@ jobs:
 
       - name: Download Prebuilt FFmpeg
         run: |
+          # Debug: Show current working directory
+          Write-Output "Current working directory: $PWD"
+          
           # Download FFmpeg prebuilt binaries
           Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
+          
+          # Debug: Confirm the zip file was downloaded
+          if (-Not (Test-Path "ffmpeg.zip")) {
+            Write-Error "ffmpeg.zip not found after download!"
+            exit 1
+          }
+          Write-Output "ffmpeg.zip downloaded successfully."
+          
           # Extract the binaries
           Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg"
-          # Move the binaries to a known location
+          
+          # Debug: List contents after extraction
+          Write-Output "Contents of ffmpeg directory after extraction:"
+          dir "ffmpeg"
+          
+          # Move the files (flatten the directory structure)
           Move-Item -Path "ffmpeg/ffmpeg-master-latest-win64-gpl/*" -Destination "ffmpeg"
+          
+          # Debug: List contents after moving
+          Write-Output "Contents of ffmpeg directory after moving:"
+          dir "ffmpeg"
+          
+          # Debug: Confirm the bin directory exists
+          if (-Not (Test-Path "ffmpeg/bin")) {
+            Write-Error "ffmpeg/bin directory not found after extraction and move!"
+            exit 1
+          }
+          Write-Output "ffmpeg/bin directory exists."
+          
           # Set environment variable for CMake to find FFmpeg
-          echo "FFMPEG_DIR=D:/a/citron-builds/citron-builds/ffmpeg" >> $GITHUB_ENV
+          echo "FFMPEG_DIR=$PWD/ffmpeg" >> $GITHUB_ENV
+          
+          # Debug: Print the FFMPEG_DIR variable
+          Write-Output "FFMPEG_DIR set to: $env:FFMPEG_DIR"
+          
           # Add FFmpeg bin directory to PATH for runtime dependencies
-          echo "D:/a/citron-builds/citron-builds/ffmpeg/bin" >> $GITHUB_PATH
+          echo "$env:FFMPEG_DIR/bin" >> $GITHUB_PATH
 
       - name: Verify FFmpeg Installation
         run: |
+          # Debug: Print the FFMPEG_DIR variable
+          Write-Output "FFMPEG_DIR in Verify step: $env:FFMPEG_DIR"
+          
+          # Check if FFMPEG_DIR is set
+          if (-Not $env:FFMPEG_DIR) {
+            Write-Error "FFMPEG_DIR environment variable is not set!"
+            exit 1
+          }
+          
           # List FFmpeg files to confirm the presence of required libraries
-          dir $env:FFMPEG_DIR/bin
-          dir $env:FFMPEG_DIR/lib
+          Write-Output "Listing contents of $env:FFMPEG_DIR/bin:"
+          dir "$env:FFMPEG_DIR/bin" -ErrorAction Stop
+          
+          Write-Output "Listing contents of $env:FFMPEG_DIR/lib:"
+          dir "$env:FFMPEG_DIR/lib" -ErrorAction Stop
+          
           # Check for specific libraries
           if (-Not (Test-Path "$env:FFMPEG_DIR/lib/avcodec.lib")) {
             Write-Error "avcodec.lib not found!"
