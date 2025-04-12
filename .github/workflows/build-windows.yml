@@ -79,14 +79,17 @@ jobs:
           Write-Output "Cloning stable version from https://git.citron-emu.org/Citron/Citron"
           git clone --recursive https://git.citron-emu.org/Citron/Citron.git citron
           cd citron
-          Write-Output "Force updating submodules..."
-          git submodule update --init --recursive --force externals/ffmpeg-6.0
-          Write-Output "Listing externals/ffmpeg-6.0 contents..."
-          dir externals/ffmpeg-6.0 -Recurse | Write-Output
+          Write-Output "Updating FFmpeg submodule..."
+          git submodule update --init --recursive --force externals/ffmpeg
+          Write-Output "Listing externals/ffmpeg contents..."
+          dir externals/ffmpeg -Recurse | Write-Output
           Write-Output "Checked out commit 51800e249bc44bd13b528220a8e064c3744c05d1"
           git checkout 51800e249bc44bd13b528220a8e064c3744c05d1
-          Write-Output "Re-checking submodules after checkout..."
-          git submodule update --init --recursive --force externals/ffmpeg-6.0
+          Write-Output "Re-checking FFmpeg submodule after checkout..."
+          git submodule update --init --recursive --force externals/ffmpeg
+          dir externals/ffmpeg -Recurse | Write-Output
+          Write-Output "Creating externals/ffmpeg-6.0 symlink..."
+          New-Item -ItemType Junction -Path externals/ffmpeg-6.0 -Target externals/ffmpeg
           dir externals/ffmpeg-6.0 -Recurse | Write-Output
           $VERSION = "0.6.1"
           echo "VERSION=$VERSION" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
@@ -220,6 +223,7 @@ jobs:
 
           # Download Vulkan SDK
           $VULKAN_VERSION = "1.4.309.0"
+          $669
           $VULKAN_URL = "https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/windows/VulkanSDK-${VULKAN_VERSION}-Installer.exe"
           Invoke-WebRequest -Uri $VULKAN_URL -OutFile "VulkanSDK-Installer.exe"
           Write-Output "Vulkan SDK installer downloaded"
