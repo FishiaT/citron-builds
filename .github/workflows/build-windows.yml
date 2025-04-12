@@ -79,8 +79,15 @@ jobs:
           Write-Output "Cloning stable version from https://git.citron-emu.org/Citron/Citron"
           git clone --recursive https://git.citron-emu.org/Citron/Citron.git citron
           cd citron
+          Write-Output "Force updating submodules..."
+          git submodule update --init --recursive --force externals/ffmpeg-6.0
+          Write-Output "Listing externals/ffmpeg-6.0 contents..."
+          dir externals/ffmpeg-6.0 -Recurse | Write-Output
           Write-Output "Checked out commit 51800e249bc44bd13b528220a8e064c3744c05d1"
           git checkout 51800e249bc44bd13b528220a8e064c3744c05d1
+          Write-Output "Re-checking submodules after checkout..."
+          git submodule update --init --recursive --force externals/ffmpeg-6.0
+          dir externals/ffmpeg-6.0 -Recurse | Write-Output
           $VERSION = "0.6.1"
           echo "VERSION=$VERSION" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
         shell: powershell
@@ -93,6 +100,13 @@ jobs:
           # Ensure PATH includes Vulkan SDK Bin
           $env:PATH = "$env:PATH;$env:VULKAN_SDK\Bin"
           Write-Output "CMake PATH: $env:PATH"
+          # Create dummy requirements.txt if missing
+          $FFMPEG_DIR = "../externals/ffmpeg-6.0"
+          $REQUIREMENTS_FILE = "$FFMPEG_DIR/requirements.txt"
+          if (-not (Test-Path $REQUIREMENTS_FILE)) {
+            Write-Output "FFmpeg requirements.txt missing, creating empty file..."
+            New-Item -Path $REQUIREMENTS_FILE -ItemType File -Force
+          }
           cmake .. -G "Visual Studio 17 2022" -A x64 `
             -DCITRON_USE_BUNDLED_VCPKG=ON `
             -DCITRON_TESTS=OFF `
@@ -105,7 +119,8 @@ jobs:
             -DUSE_DISCORD_PRESENCE=OFF `
             -DBUNDLE_SPEEX=ON `
             -DCMAKE_BUILD_TYPE=Release `
-            -DVULKAN_SDK="$env:VULKAN_SDK"
+            -DVULKAN_SDK="$env:VULKAN_SDK" `
+            -DCITRON_BUNDLE_FFMPEG=OFF
         shell: powershell
 
       - name: Build Citron
