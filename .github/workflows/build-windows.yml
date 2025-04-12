@@ -23,6 +23,7 @@ jobs:
         run: |
           # Install CMake 3.4.3 (force downgrade)
           choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' --force -y
+          Write-Output "CMake 3.4.3 installed"
 
           # Ensure Git PATH is set (Git is pre-installed)
           Write-Output "Configuring Git PATH..."
@@ -31,18 +32,37 @@ jobs:
           $env:PATH = "$env:PATH;C:\Program Files\Git\bin"
           Write-Output "Git PATH configured: $env:PATH"
 
-          # Download and install Vulkan SDK
+          # Install 7-Zip for fallback
+          choco install 7zip -y
+          Update-SessionEnvironment
+          Write-Output "7-Zip installed"
+
+          # Download Vulkan SDK
           $VULKAN_VERSION = "1.4.309.0"
           $VULKAN_URL = "https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/windows/VulkanSDK-${VULKAN_VERSION}-Installer.exe"
           Invoke-WebRequest -Uri $VULKAN_URL -OutFile "VulkanSDK-Installer.exe"
-          # Install silently
-          Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait
+          Write-Output "Vulkan SDK installer downloaded"
+
+          # Try installing Vulkan SDK with timeout
+          Write-Output "Attempting Vulkan SDK silent install..."
+          try {
+            Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait -NoNewWindow -Timeout 300
+            $VULKAN_SDK_PATH = "C:\VulkanSDK\${VULKAN_VERSION}"
+            Write-Output "Vulkan SDK installed to $VULKAN_SDK_PATH"
+          } catch {
+            Write-Output "Vulkan SDK install failed or timed out: $_"
+            Write-Output "Falling back to 7-Zip extraction..."
+            7z x VulkanSDK-Installer.exe -oVulkanSDK
+            $VULKAN_SDK_PATH = Resolve-Path "VulkanSDK"
+            Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH"
+          }
+
           # Set Vulkan SDK environment variables
-          $VULKAN_SDK_PATH = "C:\VulkanSDK\${VULKAN_VERSION}"
           $env:VULKAN_SDK = "$VULKAN_SDK_PATH"
           $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
           echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-          Write-Output "Vulkan SDK installed to $VULKAN_SDK_PATH. PATH: $env:PATH"
+          Write-Output "Vulkan SDK PATH updated: $env:PATH"
+
           # Verify glslangValidator exists
           $GLSLANG_PATH = "$VULKAN_SDK_PATH\Bin\glslangValidator.exe"
           if (Test-Path $GLSLANG_PATH) {
@@ -169,6 +189,7 @@ jobs:
         run: |
           # Install CMake 3.4.3 (force downgrade)
           choco install cmake --version=3.4.3 --installargs 'ADD_CMAKE_TO_PATH=System' --force -y
+          Write-Output "CMake 3.4.3 installed"
 
           # Ensure Git PATH is set (Git is pre-installed)
           Write-Output "Configuring Git PATH..."
@@ -177,18 +198,37 @@ jobs:
           $env:PATH = "$env:PATH;C:\Program Files\Git\bin"
           Write-Output "Git PATH configured: $env:PATH"
 
-          # Download and install Vulkan SDK
+          # Install 7-Zip for fallback
+          choco install 7zip -y
+          Update-SessionEnvironment
+          Write-Output "7-Zip installed"
+
+          # Download Vulkan SDK
           $VULKAN_VERSION = "1.4.309.0"
           $VULKAN_URL = "https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/windows/VulkanSDK-${VULKAN_VERSION}-Installer.exe"
           Invoke-WebRequest -Uri $VULKAN_URL -OutFile "VulkanSDK-Installer.exe"
-          # Install silently
-          Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait
+          Write-Output "Vulkan SDK installer downloaded"
+
+          # Try installing Vulkan SDK with timeout
+          Write-Output "Attempting Vulkan SDK silent install..."
+          try {
+            Start-Process -FilePath "VulkanSDK-Installer.exe" -ArgumentList "/S" -Wait -NoNewWindow -Timeout 300
+            $VULKAN_SDK_PATH = "C:\VulkanSDK\${VULKAN_VERSION}"
+            Write-Output "Vulkan SDK installed to $VULKAN_SDK_PATH"
+          } catch {
+            Write-Output "Vulkan SDK install failed or timed out: $_"
+            Write-Output "Falling back to 7-Zip extraction..."
+            7z x VulkanSDK-Installer.exe -oVulkanSDK
+            $VULKAN_SDK_PATH = Resolve-Path "VulkanSDK"
+            Write-Output "Vulkan SDK extracted to $VULKAN_SDK_PATH"
+          }
+
           # Set Vulkan SDK environment variables
-          $VULKAN_SDK_PATH = "C:\VulkanSDK\${VULKAN_VERSION}"
           $env:VULKAN_SDK = "$VULKAN_SDK_PATH"
           $env:PATH = "$env:PATH;$VULKAN_SDK_PATH\Bin"
           echo "VULKAN_SDK=$VULKAN_SDK_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-          Write-Output "Vulkan SDK installed to $VULKAN_SDK_PATH. PATH: $env:PATH"
+          Write-Output "Vulkan SDK PATH updated: $env:PATH"
+
           # Verify glslangValidator exists
           $GLSLANG_PATH = "$VULKAN_SDK_PATH\Bin\glslangValidator.exe"
           if (Test-Path $GLSLANG_PATH) {
